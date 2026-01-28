@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Image as ImageIcon, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Stall } from "@/../types";
@@ -25,17 +26,19 @@ export function StallGridCard({ stall }: StallGridCardProps) {
         
         {/* Image Zoom Effect on Hover */}
         {stall.stall_image ? (
-           <img 
+           <Image 
             src={stall.stall_image} 
-            alt={stall.name} 
+            alt={stall.name}
+            fill
+            sizes="(max-width: 768px) 50vw, 33vw"
             className={cn(
-                "w-full h-full object-cover transition-transform duration-500 ease-in-out",
+                "object-cover transition-transform duration-500 ease-in-out",
                 stall.is_open && "group-hover:scale-105", // Zoom only if open
                 !stall.is_open && "grayscale" // Black & white if closed
             )}
             onError={(e) => {
                 e.currentTarget.style.display = 'none';
-                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
             }}
            />
         ) : null}

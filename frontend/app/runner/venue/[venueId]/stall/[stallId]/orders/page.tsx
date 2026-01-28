@@ -33,7 +33,7 @@ export default function Home() {
   );
 
   // -- FETCHING STALL AND ORDER ITEMS --
-  const getStall = async () => {
+  const getStall = useCallback(async () => {
     try{
       const res = await fetch(`${API_URL}/stalls/${stallId}`);
       const json = await res.json();
@@ -45,9 +45,9 @@ export default function Home() {
     } catch (error: any) {
       setError(error.message);
     }
-  };
+  }, [API_URL, stallId]);
 
-  const getOrderItemsByStall = async () => {
+  const getOrderItemsByStall = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/orderItem/stall/${stallId}`);
       const json = await res.json();
@@ -60,9 +60,9 @@ export default function Home() {
     } catch (error: any) {
       setError(error.message);
     }
-  };
+  }, [API_URL, stallId]);
 
-  const getDefaultItem = async () => {
+  const getDefaultItem = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/items/default/${stallId}`);
       const json = await res.json();
@@ -74,7 +74,7 @@ export default function Home() {
     } catch (error: any) {
       setError(error.message);
     }
-  };
+  }, [API_URL, stallId]);
 
   // -- CREATING ORDER AND ORDER ITEMS --
   // Handle WebSocket events for real-time updates
@@ -177,12 +177,13 @@ export default function Home() {
   };
 
   useEffect(() => {
-    setLoading(true);
-    getStall();
-    getDefaultItem();
-    getOrderItemsByStall();
-    setLoading(false);
-  }, [API_URL, stallId]);
+    const fetchData = async () => {
+      setLoading(true);
+      await Promise.all([getStall(), getDefaultItem(), getOrderItemsByStall()]);
+      setLoading(false);
+    };
+    fetchData();
+  }, [getStall, getDefaultItem, getOrderItemsByStall]);
 
 
   return (

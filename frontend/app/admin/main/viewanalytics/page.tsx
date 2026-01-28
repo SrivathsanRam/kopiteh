@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/stores/auth.store"
 import { useRouter } from "next/navigation"
@@ -29,19 +29,7 @@ export default function ViewAnalytics() {
   const { user, isHydrated, logout, accessToken } = useAuthStore()
   const router = useRouter()
 
-  useEffect(() => {
-    if (isHydrated && !user) {
-      router.push("/admin/auth/login")
-    }
-  }, [isHydrated, user, router])
-
-  useEffect(() => {
-    if (isHydrated && user && accessToken) {
-      fetchAnalytics()
-    }
-  }, [selectedYear, selectedMonth, isHydrated, user, accessToken])
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoading(true)
     setError(null)
     
@@ -69,7 +57,19 @@ export default function ViewAnalytics() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [selectedYear, selectedMonth, accessToken])
+
+  useEffect(() => {
+    if (isHydrated && !user) {
+      router.push("/admin/auth/login")
+    }
+  }, [isHydrated, user, router])
+
+  useEffect(() => {
+    if (isHydrated && user && accessToken) {
+      fetchAnalytics()
+    }
+  }, [selectedYear, selectedMonth, isHydrated, user, accessToken, fetchAnalytics])
 
   if (!isHydrated || !user) {
     return null

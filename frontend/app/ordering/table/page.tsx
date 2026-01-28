@@ -32,7 +32,7 @@ export default function TableSelectionPage() {
       }
     }
     loadTables();
-  }, []);
+  }, [venueId]);
 
   const handleSelectOption = (table: number) => {
     setTableNumber(table);
