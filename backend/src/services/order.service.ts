@@ -219,7 +219,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
           ) mod_sum ON oi.order_item_id = mod_sum.order_item_id
           WHERE o.created_at >= $1
             AND o.created_at < $2
-            AND o.status != 'CANCELLED'${venueCondition}
+            AND o.status = 'COMPLETED'${venueCondition}
         ),
         custom_lines AS (
           SELECT
@@ -229,7 +229,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
           INNER JOIN stall s ON coi.stall_id = s.stall_id
           WHERE coi.created_at >= $1
             AND coi.created_at < $2
-            AND coi.status != 'CANCELLED'${venueCondition}
+            AND coi.status = 'SERVED'${venueCondition}
         ),
         all_lines AS (
           SELECT order_key, line_total FROM standard_lines
@@ -262,7 +262,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
           ) mod_sum ON oi.order_item_id = mod_sum.order_item_id
           WHERE o.created_at >= $1
             AND o.created_at < $2
-            AND o.status != 'CANCELLED'${venueCondition}
+            AND o.status = 'COMPLETED'${venueCondition}
         ),
         custom_lines AS (
           SELECT
@@ -274,7 +274,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
           INNER JOIN stall s ON coi.stall_id = s.stall_id
           WHERE coi.created_at >= $1
             AND coi.created_at < $2
-            AND coi.status != 'CANCELLED'${venueCondition}
+            AND coi.status = 'SERVED'${venueCondition}
         ),
         all_lines AS (
           SELECT stall_id, stall_name, order_key, line_total FROM standard_lines
