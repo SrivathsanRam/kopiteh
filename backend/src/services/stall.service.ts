@@ -156,32 +156,48 @@ export const StallService = {
           }
         }
 
-        // Delete discarded records bottom-up
-        try {
-          const optionsToDelete = oldOptionIds.filter(id => !incomingOptionIds.includes(id));
-          if (optionsToDelete.length > 0) {
-            await client.query('DELETE FROM menu_item_modifier WHERE option_id = ANY($1)', [optionsToDelete]);
+        // Delete discarded records bottom-up safely
+        const optionsToDelete = oldOptionIds.filter(id => !incomingOptionIds.includes(id));
+        for (const id of optionsToDelete) {
+          try {
+            await client.query('DELETE FROM menu_item_modifier WHERE option_id = $1', [id]);
+          } catch (e: any) {
+            if (e.code === '23503') {
+              await client.query('UPDATE menu_item_modifier SET is_available = false WHERE option_id = $1', [id]);
+            } else throw e;
           }
+        }
 
-          const sectionsToDelete = oldSectionIds.filter(id => !incomingSectionIds.includes(id));
-          if (sectionsToDelete.length > 0) {
-            await client.query('DELETE FROM menu_item_modifier_section WHERE section_id = ANY($1)', [sectionsToDelete]);
+        const sectionsToDelete = oldSectionIds.filter(id => !incomingSectionIds.includes(id));
+        for (const id of sectionsToDelete) {
+          try {
+            await client.query('DELETE FROM menu_item_modifier_section WHERE section_id = $1', [id]);
+          } catch (e: any) {
+            if (e.code !== '23503') throw e; 
+            // Sections don't have is_available, they hold options. The options were soft-deleted above.
           }
+        }
 
-          const itemsToDelete = oldItemIds.filter(id => !incomingItemIds.includes(id));
-          if (itemsToDelete.length > 0) {
-            await client.query('DELETE FROM menu_item WHERE item_id = ANY($1)', [itemsToDelete]);
+        const itemsToDelete = oldItemIds.filter(id => !incomingItemIds.includes(id));
+        for (const id of itemsToDelete) {
+          try {
+            await client.query('DELETE FROM menu_item WHERE item_id = $1', [id]);
+          } catch (e: any) {
+            if (e.code === '23503') {
+              await client.query('UPDATE menu_item SET is_available = false WHERE item_id = $1', [id]);
+            } else throw e;
           }
+        }
 
-          const stallsToDelete = oldStallIds.filter(id => !incomingStallIds.includes(id));
-          if (stallsToDelete.length > 0) {
-            await client.query('DELETE FROM stall WHERE stall_id = ANY($1)', [stallsToDelete]);
+        const stallsToDelete = oldStallIds.filter(id => !incomingStallIds.includes(id));
+        for (const id of stallsToDelete) {
+          try {
+            await client.query('DELETE FROM stall WHERE stall_id = $1', [id]);
+          } catch (e: any) {
+            if (e.code === '23503') {
+              await client.query('UPDATE stall SET is_open = false WHERE stall_id = $1', [id]);
+            } else throw e;
           }
-        } catch (delError: any) {
-          if (delError.code === '23503') {
-             throw new Error('Cannot delete a stall, item, or modifier because it has active order history. Please mark them as unavailable instead of deleting rows.');
-          }
-          throw delError; // other SQL error
         }
 
         const parseBool = (v: any) => v === true || v === 'true' || v === 'TRUE';
