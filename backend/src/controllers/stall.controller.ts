@@ -7,6 +7,18 @@ import { ErrorCodes } from "../types/errors";
 import { SuccessCodes } from "../types/success";
 
 export const StallController = {
+  async importStalls(req: Request, res: Response) {
+    try {
+      const venueId = Number(req.params.venue_id);
+      const data = req.body;
+      const result = await StallService.importStallsForVenue(venueId, data);
+      return res.status(result.payload.status).json(result);
+    } catch (err: any) {
+      const resp = errorResponse(ErrorCodes.INTERNAL_ERROR, err.message);
+      return res.status(resp.payload.status).json(resp);
+    }
+  },
+
   async getAll(req: Request, res: Response) {
     const venueId = Number(req.params.venue_id);
     const result = await StallService.findAllByVenue(venueId);

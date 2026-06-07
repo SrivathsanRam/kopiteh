@@ -6,7 +6,7 @@ import { useAuthStore } from "@/stores/auth.store"
 import { CardHolder } from "@/components/ui/cardholder"
 import { Button } from "@/components/ui/button"
 import { useParams } from "next/navigation";
-import { CirclePlus, Download } from "lucide-react"
+import { CirclePlus, Download, Upload } from "lucide-react"
 import { AdminStallModal } from "@/components/ui/admin/adminstallmodal"
 import Link from "next/link"
 
@@ -24,6 +24,7 @@ export default function Stalls() {
     const [updating, setUpdating] = useState(false);
     const [editingStall, setEditingStall] = useState<Stall>(null)
     const [exporting, setExporting] = useState(false);
+    const [importing, setImporting] = useState(false);
     const API_URL = process.env.NEXT_PUBLIC_API_URL
 
     async function fetchJsonOrThrow(res: Response, fallbackMessage: string) {
@@ -350,12 +351,94 @@ export default function Stalls() {
         }
     };
 
+    const handleImportVenueMenu = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        try {
+            setImporting(true);
+            setError(null);
+
+            const XLSX = await import("xlsx");
+            const reader = new FileReader();
+
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target?.result as ArrayBuffer);
+                    const workbook = XLSX.read(data, { type: "array" });
+
+                    if (!workbook.Sheets["Stalls"] || !workbook.Sheets["Items"] || !workbook.Sheets["Variants"]) {
+                        throw new Error("Invalid format. Make sure the Excel file has 'Stalls', 'Items', and 'Variants' sheets.");
+                    }
+
+                    const stalls = XLSX.utils.sheet_to_json(workbook.Sheets["Stalls"]);
+                    const items = XLSX.utils.sheet_to_json(workbook.Sheets["Items"]);
+                    const variants = XLSX.utils.sheet_to_json(workbook.Sheets["Variants"]);
+
+                    const res = await fetch(`${API_URL}/stalls/venue/${venueId}/import`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${accessToken}`,
+                        },
+                        body: JSON.stringify({ stalls, items, variants })
+                    });
+
+                    const resData = await res.json();
+                    if (!res.ok || resData.success === false) {
+                        throw new Error(resData?.payload?.message ?? "Import failed");
+                    }
+
+                    window.location.reload();
+                } catch (err: any) {
+                    setError(err?.message ?? "Error parsing or importing Excel file");
+                } finally {
+                    setImporting(false);
+                }
+            };
+
+            reader.onerror = () => {
+                setError("Failed to read the file");
+                setImporting(false);
+            };
+
+            reader.readAsArrayBuffer(file);
+        } catch (err: any) {
+            setError(err?.message ?? "Failed to process the import");
+            setImporting(false);
+        } finally {
+            event.target.value = '';
+        }
+    };
+
     return (
         <main className="min-h-screen px-6 py-10 flex w-full">
             <div className="flex-1 w-full">
                 <div className="flex justify-between">
                     <h1 className="font-bold text-2xl">Stalls</h1>
                     <div className="flex items-center gap-2">
+                        <input
+                            type="file"
+                            accept=".xlsx, .xls"
+                            id="import-upload"
+                            className="hidden"
+                            onChange={handleImportVenueMenu}
+                            disabled={importing || loading}
+                        />
+                        <label htmlFor="import-upload">
+                            <Button
+                                variant="outline"
+                                className="py-2 rounded-xl"
+                                asChild
+                                disabled={importing || loading}
+                            >
+                                <span>
+                                    <Upload className="h-4 w-4 mr-2" />
+                                    {importing ? "Importing..." : "Import Stalls and Items"}
+                                </span>
+                            </Button>
+                        </label>
+                        
                         <Button
                             variant="outline"
                             className="py-2 rounded-xl"
@@ -375,6 +458,13 @@ export default function Stalls() {
                 {loading && <div className="flex-1 grid place-items-center">
                     <p className="text-primary1">Loading…</p>
                 </div>}
+
+                {!loading && error && (
+                    <div className="mt-6 p-4 bg-red-50 border border-red-200 text-red-600 rounded-xl">
+                        <p className="font-semibold">Error</p>
+                        <p>{error}</p>
+                    </div>
+                )}
 
                 {!loading && !error && stalls.length === 0 && (
                     <p className="mt-4">No stalls found.</p>
