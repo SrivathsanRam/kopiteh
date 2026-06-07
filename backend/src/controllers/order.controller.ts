@@ -34,10 +34,12 @@ export const OrderController = {
     try {
       const tableId = Number(req.params.table_id);
       const venueId = req.query.venueId ? Number(req.query.venueId) : undefined;
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
       const result = await OrderService.getAllWithFilters({ 
         tableId: tableId,
         venueId: venueId,
+        startDate: sevenDaysAgo,
         page: 1, 
         limit: 100 
       });

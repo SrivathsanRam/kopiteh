@@ -22,7 +22,7 @@ export const OrderService = {
   async findByUser(user_id: number): Promise<ServiceResult<any[]>> {
     try {
       const result = await BaseService.query(
-        'SELECT * FROM "order" WHERE user_id = $1 ORDER BY order_id',
+        'SELECT * FROM "order" WHERE user_id = $1 AND created_at >= NOW() - INTERVAL \'7 days\' ORDER BY order_id',
         [user_id]
       );
       return successResponse(SuccessCodes.OK, result.rows);
@@ -52,7 +52,7 @@ export const OrderService = {
   async findByTable(table_id: number): Promise<ServiceResult<any[]>> {
     try {
       const result = await BaseService.query(
-        'SELECT * FROM "order" WHERE table_id = $1 ORDER BY order_id',
+        'SELECT * FROM "order" WHERE table_id = $1 AND created_at >= NOW() - INTERVAL \'7 days\' ORDER BY order_id',
         [table_id]
       );
       return successResponse(SuccessCodes.OK, result.rows);
