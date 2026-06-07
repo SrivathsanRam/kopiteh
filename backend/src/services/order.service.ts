@@ -38,7 +38,8 @@ export const OrderService = {
           SELECT order_id FROM order_item WHERE item_id IN (
             SELECT item_id FROM menu_item WHERE stall_id = $1
           )
-        ) ORDER BY order_id`,
+        ) AND created_at >= NOW() - INTERVAL '7 days'
+        ORDER BY order_id`,
         [stall_id]
       );
       return successResponse(SuccessCodes.OK, result.rows);

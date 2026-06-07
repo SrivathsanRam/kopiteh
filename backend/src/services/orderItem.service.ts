@@ -146,7 +146,9 @@ export const OrderItemService = {
       const standardOrderItemIds = await BaseService.query(
         `SELECT oi.order_item_id FROM order_item oi
         JOIN menu_item m ON oi.item_id = m.item_id
-        WHERE m.stall_id = $1 ORDER BY oi.order_item_id`,
+        JOIN "order" o ON oi.order_id = o.order_id
+        WHERE m.stall_id = $1 AND o.created_at >= NOW() - INTERVAL '7 days' 
+        ORDER BY oi.order_item_id`,
         [stall_id]
       );
 
@@ -162,7 +164,7 @@ export const OrderItemService = {
         `SELECT coi.*, t.table_number, 'CUSTOM' AS type 
          FROM custom_order_item coi
          LEFT JOIN "table" t ON coi.table_id = t.table_id
-         WHERE coi.stall_id = $1 
+         WHERE coi.stall_id = $1 AND coi.created_at >= NOW() - INTERVAL '7 days'
          ORDER BY coi.order_item_id`,
         [stall_id]
       );
