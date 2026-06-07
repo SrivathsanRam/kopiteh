@@ -156,12 +156,18 @@ export const StallService = {
           }
         }
 
-        // Delete discarded records bottom-up safely
+        // Delete discarded records bottom-up safely using SAVEPOINTS
+        // PostgreSQL aborts the entire transaction if a query fails (like violating a FK).
+        // A SAVEPOINT allows us to rollback just that specific query failure and proceed.
+
         const optionsToDelete = oldOptionIds.filter(id => !incomingOptionIds.includes(id));
         for (const id of optionsToDelete) {
           try {
+            await client.query('SAVEPOINT sp_del_opt');
             await client.query('DELETE FROM menu_item_modifier WHERE option_id = $1', [id]);
+            await client.query('RELEASE SAVEPOINT sp_del_opt');
           } catch (e: any) {
+            await client.query('ROLLBACK TO SAVEPOINT sp_del_opt');
             if (e.code === '23503') {
               await client.query('UPDATE menu_item_modifier SET is_available = false WHERE option_id = $1', [id]);
             } else throw e;
@@ -171,8 +177,11 @@ export const StallService = {
         const sectionsToDelete = oldSectionIds.filter(id => !incomingSectionIds.includes(id));
         for (const id of sectionsToDelete) {
           try {
+            await client.query('SAVEPOINT sp_del_sec');
             await client.query('DELETE FROM menu_item_modifier_section WHERE section_id = $1', [id]);
+            await client.query('RELEASE SAVEPOINT sp_del_sec');
           } catch (e: any) {
+            await client.query('ROLLBACK TO SAVEPOINT sp_del_sec');
             if (e.code !== '23503') throw e; 
             // Sections don't have is_available, they hold options. The options were soft-deleted above.
           }
@@ -181,8 +190,11 @@ export const StallService = {
         const itemsToDelete = oldItemIds.filter(id => !incomingItemIds.includes(id));
         for (const id of itemsToDelete) {
           try {
+            await client.query('SAVEPOINT sp_del_item');
             await client.query('DELETE FROM menu_item WHERE item_id = $1', [id]);
+            await client.query('RELEASE SAVEPOINT sp_del_item');
           } catch (e: any) {
+            await client.query('ROLLBACK TO SAVEPOINT sp_del_item');
             if (e.code === '23503') {
               await client.query('UPDATE menu_item SET is_available = false WHERE item_id = $1', [id]);
             } else throw e;
@@ -192,8 +204,11 @@ export const StallService = {
         const stallsToDelete = oldStallIds.filter(id => !incomingStallIds.includes(id));
         for (const id of stallsToDelete) {
           try {
+            await client.query('SAVEPOINT sp_del_stall');
             await client.query('DELETE FROM stall WHERE stall_id = $1', [id]);
+            await client.query('RELEASE SAVEPOINT sp_del_stall');
           } catch (e: any) {
+            await client.query('ROLLBACK TO SAVEPOINT sp_del_stall');
             if (e.code === '23503') {
               await client.query('UPDATE stall SET is_open = false WHERE stall_id = $1', [id]);
             } else throw e;
