@@ -306,16 +306,146 @@ export default function ViewOrders() {
     return null
   }
 
-  const handleExportOrders = async () => {
+  const fetchAllItemsAndModifiers = async (standardOrders: Order[]) => {
+    const items: any[] = []
+    const modifiers: any[] = []
+
+    const itemsByOrder = await Promise.all(
+      standardOrders.map(async (order) => {
+        try {
+          const res = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/orderItem/order/${order.order_id}`,
+            { headers: { "Authorization": `Bearer ${accessToken}` } }
+          )
+          const data = await res.json()
+          return {
+            order_id: order.order_id,
+            rawItems: data.success && data.payload?.data ? data.payload.data : [],
+          }
+        } catch {
+          return { order_id: order.order_id, rawItems: [] }
+        }
+      })
+    )
+
+    for (const { order_id, rawItems } of itemsByOrder) {
+      const itemsWithMods = await Promise.all(
+        rawItems.map(async (rawItem: any) => {
+          try {
+            const modRes = await fetch(
+              `${process.env.NEXT_PUBLIC_API_URL}/orderItem/modifiers/${rawItem.order_item_id}`,
+              { headers: { "Authorization": `Bearer ${accessToken}` } }
+            )
+            const modData = await modRes.json()
+            const itemMods: any[] = modData.success && modData.payload?.data ? modData.payload.data : []
+
+            itemMods.forEach((mod: any) => {
+              modifiers.push({
+                order_item_option_id: mod.order_item_option_id,
+                order_item_id: rawItem.order_item_id,
+                order_id: order_id,
+                option_name: mod.option_name || '',
+                price_modifier: parseFloat(mod.price_modifier?.toString() ?? '0'),
+              })
+            })
+
+            const modTotal = itemMods.reduce(
+              (sum: number, m: any) => sum + parseFloat(m.price_modifier?.toString() ?? '0'),
+              0
+            )
+            const basePrice = parseFloat(rawItem.price?.toString() ?? '0')
+            const unitPrice = basePrice + modTotal
+
+            return {
+              order_item_id: rawItem.order_item_id,
+              order_id: order_id,
+              item_name: rawItem.order_item_name,
+              stall_name: rawItem.stall_name || '',
+              quantity: rawItem.quantity,
+              unit_price: unitPrice,
+              total: unitPrice * rawItem.quantity,
+              status: rawItem.status,
+              remarks: rawItem.remarks || '',
+            }
+          } catch {
+            const basePrice = parseFloat(rawItem.price?.toString() ?? '0')
+            return {
+              order_item_id: rawItem.order_item_id,
+              order_id: order_id,
+              item_name: rawItem.order_item_name,
+              stall_name: rawItem.stall_name || '',
+              quantity: rawItem.quantity,
+              unit_price: basePrice,
+              total: basePrice * rawItem.quantity,
+              status: rawItem.status,
+              remarks: rawItem.remarks || '',
+            }
+          }
+        })
+      )
+      items.push(...itemsWithMods)
+    }
+
+    return { items, modifiers }
+  }
+
+  const buildWorkbook = (orders: Order[], items: any[], modifiers: any[], suffix: string) => {
     const XLSX = require("xlsx")
 
+    const orderSheet = [
+      ["Order ID", "Date", "Venue", "Table", "Status", "Type", "Total"],
+      ...orders.map(o => [
+        o.order_id,
+        new Date(o.created_at).toLocaleDateString('en-GB'),
+        o.venue_name,
+        o.table_number,
+        o.status,
+        o.order_type ?? "STANDARD",
+        parseFloat(o.total_price?.toString() ?? "0"),
+      ]),
+    ]
+
+    const itemSheet = [
+      ["Order Item ID", "Order ID", "Item Name", "Stall", "Quantity", "Unit Price", "Total", "Status", "Remarks"],
+      ...items.map(i => [
+        i.order_item_id,
+        i.order_id,
+        i.item_name,
+        i.stall_name,
+        i.quantity,
+        i.unit_price,
+        i.total,
+        i.status,
+        i.remarks,
+      ]),
+    ]
+
+    const modifierSheet = [
+      ["Modifier ID", "Order Item ID", "Order ID", "Option Name", "Price Modifier"],
+      ...modifiers.map(m => [
+        m.order_item_option_id,
+        m.order_item_id,
+        m.order_id,
+        m.option_name,
+        m.price_modifier,
+      ]),
+    ]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(orderSheet), "Orders")
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(itemSheet), "Items")
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(modifierSheet), "Modifiers")
+    XLSX.writeFile(wb, `orders_${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  const handleExportOrders = async () => {
     const params = new URLSearchParams()
     if (startDate) params.append('startDate', new Date(startDate).toISOString())
     if (endDate) params.append('endDate', new Date(endDate).toISOString())
     if (tableNumber) params.append('tableNumber', tableNumber)
     if (venueId) params.append('venueId', venueId)
     if (stallId) params.append('stallId', stallId)
-    params.append('limit', '10000') // fetch all matching, no pagination
+    params.append('limit', '10000')
 
     const res = await fetch(
       `${process.env.NEXT_PUBLIC_API_URL}/order?${params.toString()}`,
@@ -324,30 +454,14 @@ export default function ViewOrders() {
     const data = await res.json()
     const allOrders: Order[] = data.payload?.data?.orders ?? []
 
-    const sheetData = [
-      ["Order ID", "Date & Time", "Venue", "Table", "Status", "Type", "Total"],
-      ...allOrders.map(o => [
-        o.order_id,
-        new Date(o.created_at).toLocaleDateString('en-GB'),
-        o.venue_name,
-        o.table_number,
-        o.status,
-        o.order_type ?? "STANDARD",
-        `$${parseFloat(o.total_price?.toString() ?? "0").toFixed(2)}`,
-      ])
-    ]
+    const standardOrders = allOrders.filter(o => o.order_type !== 'CUSTOM')
+    const { items, modifiers } = await fetchAllItemsAndModifiers(standardOrders)
 
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), "Orders")
-    XLSX.writeFile(wb, `orders_filtered_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    buildWorkbook(allOrders, items, modifiers, 'filtered')
   }
 
   const handleExportAllVenues = async () => {
-    const XLSX = require("xlsx")
-
-    const sheetRows: any[][] = [
-      ["Order ID", "Date & Time", "Venue", "Table", "Status", "Type", "Total"]
-    ]
+    const allOrders: Order[] = []
 
     for (const venue of venues) {
       const params = new URLSearchParams()
@@ -361,26 +475,16 @@ export default function ViewOrders() {
         )
         const data = await res.json()
         const venueOrders: Order[] = data.payload?.data?.orders ?? []
-
-        venueOrders.forEach(o => {
-          sheetRows.push([
-            o.order_id,
-            new Date(o.created_at).toLocaleDateString('en-GB'),
-            o.venue_name,
-            o.table_number,
-            o.status,
-            o.order_type ?? "STANDARD",
-            `$${parseFloat(o.total_price?.toString() ?? "0").toFixed(2)}`,
-          ])
-        })
+        allOrders.push(...venueOrders)
       } catch (err) {
         console.error(`Failed to fetch orders for ${venue.name}:`, err)
       }
     }
 
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetRows), "All Orders")
-    XLSX.writeFile(wb, `orders_all_venues_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    const standardOrders = allOrders.filter(o => o.order_type !== 'CUSTOM')
+    const { items, modifiers } = await fetchAllItemsAndModifiers(standardOrders)
+
+    buildWorkbook(allOrders, items, modifiers, 'all_venues')
   }
 
   return (
