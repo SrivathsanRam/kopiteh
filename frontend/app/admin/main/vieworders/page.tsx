@@ -328,7 +328,7 @@ export default function ViewOrders() {
       ["Order ID", "Date & Time", "Venue", "Table", "Status", "Type", "Total"],
       ...allOrders.map(o => [
         o.order_id,
-        new Date(o.created_at).toLocaleString(),
+        new Date(o.created_at).toLocaleDateString('en-GB'),
         o.venue_name,
         o.table_number,
         o.status,
@@ -365,7 +365,7 @@ export default function ViewOrders() {
         venueOrders.forEach(o => {
           sheetRows.push([
             o.order_id,
-            new Date(o.created_at).toLocaleString(),
+            new Date(o.created_at).toLocaleDateString('en-GB'),
             o.venue_name,
             o.table_number,
             o.status,
