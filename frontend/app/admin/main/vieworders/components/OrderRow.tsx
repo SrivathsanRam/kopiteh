@@ -78,14 +78,35 @@ export function OrderRow({ order, isExpanded, isLoadingItems, onToggleExpand }: 
                   <span className="font-semibold">Quantity:</span> {order.quantity}
                 </div>
                 <div className="text-sm">
-                  <span className="font-semibold">Unit Price:</span> ${parseFloat(order.unit_price.toString() || '0').toFixed(2)}
+                  <span className="font-semibold">Unit Price:</span> ${parseFloat(order.unit_price?.toString() || '0').toFixed(2)}
                 </div>
                 <div className="text-sm">
                   <span className="font-semibold">Total:</span> ${parseFloat(order.total_price.toString()).toFixed(2)}
                 </div>
               </div>
             ) : order.items && order.items.length > 0 ? (
-              <OrderItemsList items={order.items} />
+              <>
+                <OrderItemsList items={order.items} />
+                {(() => {
+                  const itemsTotal = order.items.reduce((sum, item) => {
+                    const basePrice = parseFloat(item.price.toString())
+                    const modifierTotal = item.modifiers?.reduce(
+                      (s, mod) => s + parseFloat(mod.price_modifier.toString()),
+                      0
+                    ) ?? 0
+                    return sum + (basePrice + modifierTotal) * item.quantity
+                  }, 0)
+                  const orderTotal = parseFloat(order.total_price.toString())
+                  return (
+                    <div className={`mt-4 pt-3 border-t text-sm font-medium text-right ${itemsTotal === orderTotal ? 'text-gray-900' : 'text-red-600'}`}>
+                      Items subtotal: ${itemsTotal.toFixed(2)}
+                      {itemsTotal !== orderTotal && (
+                        <span className="ml-3">| Order total: ${orderTotal.toFixed(2)}</span>
+                      )}
+                    </div>
+                  )
+                })()}
+              </>
             ) : (
               <p className="text-gray-600 text-center">No items found for this order</p>
             )}
