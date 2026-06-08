@@ -89,7 +89,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
       `INSERT INTO "order" (table_id, user_id, status, total_price, created_at, volunteer_name) 
         VALUES ($1, $2, $3, $4, NOW(), $5) 
         RETURNING order_id`,
-      [request.table_id, userId, 'pending', request.total_price, request.volunteer_name]
+      [request.table_id, userId, OrderStatusCodes.PENDING, request.total_price, request.volunteer_name]
     );
     const orderId = orderRes.rows[0].order_id;
 

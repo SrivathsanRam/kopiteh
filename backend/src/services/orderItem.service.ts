@@ -462,12 +462,15 @@ export const OrderItemService = {
       let result;
       if (type === 'STANDARD') {
         result = await BaseService.query(
-          'DELETE FROM order_item WHERE order_item_id = $1', 
+          'DELETE FROM order_item WHERE order_item_id = $1 RETURNING order_id',
           [id]
         );
+        if (result.rows.length > 0) {
+          OrderService.updateStatus(result.rows[0].order_id);
+        }
       } else {
         result = await BaseService.query(
-          'DELETE FROM custom_order_item WHERE order_item_id = $1', 
+          'DELETE FROM custom_order_item WHERE order_item_id = $1',
           [id]
         );
       }
