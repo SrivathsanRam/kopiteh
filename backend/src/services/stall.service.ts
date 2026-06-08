@@ -117,8 +117,38 @@ export const StallService = {
       const itemsData = data.items || [];
       const variantsData = data.variants || [];
 
+      const warnings: string[] = [];
+
+      // --- Validate input ---
+      const venueCheck = await BaseService.query('SELECT venue_id FROM venue WHERE venue_id = $1', [venueId]);
+      if (!venueCheck.rows[0]) {
+        return errorResponse(ErrorCodes.VALIDATION_ERROR, `Venue with ID ${venueId} does not exist.`);
+      }
+
+      for (let i = 0; i < stallsData.length; i++) {
+        const name = stallsData[i]["Stall Name"];
+        if (!name || String(name).trim() === '') {
+          return errorResponse(ErrorCodes.VALIDATION_ERROR,
+            `Stalls sheet row ${i + 2}: missing required field "Stall Name".`);
+        }
+      }
+
+      for (let i = 0; i < itemsData.length; i++) {
+        const item = itemsData[i];
+        if (!item["Item Name"] || String(item["Item Name"]).trim() === '') {
+          return errorResponse(ErrorCodes.VALIDATION_ERROR,
+            `Items sheet row ${i + 2}: missing required field "Item Name".`);
+        }
+        if (!item["Stall ID"] && !item["Stall Name"]) {
+          return errorResponse(ErrorCodes.VALIDATION_ERROR,
+            `Items sheet row ${i + 2} ("${item["Item Name"]}"): missing both "Stall ID" and "Stall Name" — cannot determine which stall this item belongs to.`);
+        }
+      }
+
+      const parseBool = (v: any) => v === true || v === 'true' || v === 'TRUE';
+
       return await BaseService.tx(async (client) => {
-        // Collect incoming IDs
+        // Collect incoming Excel IDs
         const incomingStallIds = stallsData
           .map((s: any) => Number(s["Stall ID"]))
           .filter((id: number) => !isNaN(id) && id > 0);
@@ -126,19 +156,19 @@ export const StallService = {
         const incomingItemIds = itemsData
           .map((i: any) => Number(i["Item ID"]))
           .filter((id: number) => !isNaN(id) && id > 0);
-          
+
         const incomingSectionIds = variantsData
           .map((v: any) => Number(v["Section ID"]))
           .filter((id: number) => !isNaN(id) && id > 0);
-          
+
         const incomingOptionIds = variantsData
           .map((v: any) => Number(v["Option ID"]))
           .filter((id: number) => !isNaN(id) && id > 0);
 
-        // Get DB IDs
+        // Get existing DB IDs under this venue
         const oldStallsRes = await client.query('SELECT stall_id FROM stall WHERE venue_id = $1', [venueId]);
         const oldStallIds = oldStallsRes.rows.map(r => r.stall_id);
-        
+
         let oldItemIds: number[] = [];
         let oldSectionIds: number[] = [];
         let oldOptionIds: number[] = [];
@@ -156,9 +186,8 @@ export const StallService = {
           }
         }
 
-        // Delete discarded records bottom-up safely using SAVEPOINTS
-        // PostgreSQL aborts the entire transaction if a query fails (like violating a FK).
-        // A SAVEPOINT allows us to rollback just that specific query failure and proceed.
+        // Delete discarded records bottom-up using SAVEPOINTS
+        // FK violations are handled by falling back to soft-delete
 
         const optionsToDelete = oldOptionIds.filter(id => !incomingOptionIds.includes(id));
         for (const id of optionsToDelete) {
@@ -170,7 +199,9 @@ export const StallService = {
             await client.query('ROLLBACK TO SAVEPOINT sp_del_opt');
             if (e.code === '23503') {
               await client.query('UPDATE menu_item_modifier SET is_available = false WHERE option_id = $1', [id]);
-            } else throw e;
+            } else {
+              throw new Error(`Cannot remove modifier option ${id}: ${e.message}`);
+            }
           }
         }
 
@@ -182,8 +213,9 @@ export const StallService = {
             await client.query('RELEASE SAVEPOINT sp_del_sec');
           } catch (e: any) {
             await client.query('ROLLBACK TO SAVEPOINT sp_del_sec');
-            if (e.code !== '23503') throw e; 
-            // Sections don't have is_available, they hold options. The options were soft-deleted above.
+            if (e.code !== '23503') {
+              throw new Error(`Cannot remove modifier section ${id}: ${e.message}`);
+            }
           }
         }
 
@@ -197,7 +229,9 @@ export const StallService = {
             await client.query('ROLLBACK TO SAVEPOINT sp_del_item');
             if (e.code === '23503') {
               await client.query('UPDATE menu_item SET is_available = false WHERE item_id = $1', [id]);
-            } else throw e;
+            } else {
+              throw new Error(`Cannot remove menu item ${id}: ${e.message}`);
+            }
           }
         }
 
@@ -211,135 +245,213 @@ export const StallService = {
             await client.query('ROLLBACK TO SAVEPOINT sp_del_stall');
             if (e.code === '23503') {
               await client.query('UPDATE stall SET is_open = false WHERE stall_id = $1', [id]);
-            } else throw e;
+            } else {
+              throw new Error(`Cannot remove stall ${id}: ${e.message}`);
+            }
           }
         }
 
-        const parseBool = (v: any) => v === true || v === 'true' || v === 'TRUE';
+        // --- UPSERT STALLS ---
+        const stallIdMap = new Map<number, number>();   // Excel ID -> DB ID
+        const stallNameMap = new Map<string, number>();  // lowercase name -> DB ID
 
-        // 1. STALLS
-        const stallIdMap = new Map<number | string, number>(); // old_id or name -> db id
         for (const s of stallsData) {
           const excelId = Number(s["Stall ID"]);
-          const name = String(s["Stall Name"] || 'Unnamed Stall');
+          const name = String(s["Stall Name"] || '').trim();
           const description = s["Description"] ? String(s["Description"]) : null;
           const image = s["Image"] ? String(s["Image"]) : null;
           const isOpen = s.hasOwnProperty("Is Open") ? parseBool(s["Is Open"]) : true;
           const allowRemarks = s.hasOwnProperty("Allow Remarks") ? parseBool(s["Allow Remarks"]) : false;
 
           let finalStallId = 0;
-          if (excelId > 0 && oldStallIds.includes(excelId)) {
-            const res = await client.query(
-              `UPDATE stall SET name = $1, description = $2, stall_image = $3, is_open = $4, allow_remarks = $5 WHERE stall_id = $6 RETURNING stall_id`,
-              [name, description, image, isOpen, allowRemarks, excelId]
-            );
-            finalStallId = res.rows[0]?.stall_id;
-          } else {
-            const res = await client.query(
-              `INSERT INTO stall (venue_id, name, description, stall_image, is_open, allow_remarks) VALUES ($1, $2, $3, $4, $5, $6) RETURNING stall_id`,
-              [venueId, name, description, image, isOpen, allowRemarks]
-            );
-            finalStallId = res.rows[0].stall_id;
+          try {
+            if (excelId > 0 && oldStallIds.includes(excelId)) {
+              const res = await client.query(
+                `UPDATE stall SET name = $1, description = $2, stall_image = $3, is_open = $4, allow_remarks = $5 WHERE stall_id = $6 RETURNING stall_id`,
+                [name, description, image, isOpen, allowRemarks, excelId]
+              );
+              finalStallId = res.rows[0]?.stall_id;
+            } else {
+              const res = await client.query(
+                `INSERT INTO stall (venue_id, name, description, stall_image, is_open, allow_remarks) VALUES ($1, $2, $3, $4, $5, $6) RETURNING stall_id`,
+                [venueId, name, description, image, isOpen, allowRemarks]
+              );
+              finalStallId = res.rows[0]?.stall_id;
+            }
+          } catch (e: any) {
+            throw new Error(`Failed to import stall "${name}": ${e.message}`);
           }
+
+          if (!finalStallId) {
+            throw new Error(`Failed to import stall "${name}": could not get database ID.`);
+          }
+
           if (excelId > 0) stallIdMap.set(excelId, finalStallId);
-          stallIdMap.set(name, finalStallId);
+          stallNameMap.set(name.toLowerCase(), finalStallId);
         }
 
-        // 2. ITEMS
-        const itemIdMap = new Map<number | string, number>();
+        // --- UPSERT ITEMS ---
+        const itemIdMap = new Map<number, number>();      // Excel Item ID -> DB ID
+        const itemKeyMap = new Map<string, number>();     // "stallId::name" -> DB ID
+
         for (const i of itemsData) {
           const excelStallId = Number(i["Stall ID"]);
-          const stallName = i["Stall Name"];
-          const stallId = stallIdMap.get(excelStallId) || stallIdMap.get(stallName);
+          const stallName = String(i["Stall Name"] || '').trim();
+          const stallId = (excelStallId > 0 ? stallIdMap.get(excelStallId) : undefined)
+            ?? stallNameMap.get(stallName.toLowerCase());
 
-          if (!stallId) continue; // cannot attach item
+          if (!stallId) {
+            warnings.push(`Skipped item "${i["Item Name"]}": could not find stall "${stallName || excelStallId}".`);
+            continue;
+          }
 
           const excelId = Number(i["Item ID"]);
-          const name = String(i["Item Name"] || 'Unnamed Item');
+          const name = String(i["Item Name"] || '').trim();
           const categoryId = Number(i["Category ID"]) || null;
           const price = Number(i["Price"]) || 0;
           const isAvail = i.hasOwnProperty("Is Available") ? parseBool(i["Is Available"]) : true;
           const prepTime = Number(i["Prep Time"]) || 0;
           const desc = i["Description"] ? String(i["Description"]) : null;
 
-          let finalItemId = 0;
-          if (excelId > 0 && oldItemIds.includes(excelId)) {
-            const res = await client.query(
-              `UPDATE menu_item SET stall_id = $1, name = $2, category_id = $3, price = $4, is_available = $5, prep_time = $6, description = $7 WHERE item_id = $8 RETURNING item_id`,
-              [stallId, name, categoryId, price, isAvail, prepTime, desc, excelId]
-            );
-            finalItemId = res.rows[0]?.item_id;
-          } else {
-            const res = await client.query(
-              `INSERT INTO menu_item (stall_id, name, category_id, price, is_available, prep_time, description) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING item_id`,
-              [stallId, name, categoryId, price, isAvail, prepTime, desc]
-            );
-            finalItemId = res.rows[0]?.item_id;
+          if (isNaN(price) || price < 0) {
+            warnings.push(`Skipped item "${name}": invalid price "${i["Price"]}".`);
+            continue;
           }
+
+          let finalItemId = 0;
+          try {
+            if (excelId > 0 && oldItemIds.includes(excelId)) {
+              const res = await client.query(
+                `UPDATE menu_item SET stall_id = $1, name = $2, category_id = $3, price = $4, is_available = $5, prep_time = $6, description = $7 WHERE item_id = $8 RETURNING item_id`,
+                [stallId, name, categoryId, price, isAvail, prepTime, desc, excelId]
+              );
+              finalItemId = res.rows[0]?.item_id;
+            } else {
+              const res = await client.query(
+                `INSERT INTO menu_item (stall_id, name, category_id, price, is_available, prep_time, description) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING item_id`,
+                [stallId, name, categoryId, price, isAvail, prepTime, desc]
+              );
+              finalItemId = res.rows[0]?.item_id;
+            }
+          } catch (e: any) {
+            throw new Error(`Failed to import item "${name}" (stall "${stallName || excelStallId}"): ${e.message}`);
+          }
+
+          if (!finalItemId) {
+            throw new Error(`Failed to import item "${name}": could not get database ID.`);
+          }
+
           if (excelId > 0) itemIdMap.set(excelId, finalItemId);
-          itemIdMap.set(name, finalItemId);
+          itemKeyMap.set(`${stallId}::${name.toLowerCase()}`, finalItemId);
         }
 
-        // 3. VARIANTS
-        const sectionIdMap = new Map<number | string, number>();
+        // --- UPSERT VARIANTS (modifier sections + options) ---
+        const sectionIdMap = new Map<number, number>();   // Excel Section ID -> DB ID
+
         for (const v of variantsData) {
+          const excelStallId = Number(v["Stall ID"]);
+          const stallName = String(v["Stall Name"] || '').trim();
+          const stallId = (excelStallId > 0 ? stallIdMap.get(excelStallId) : undefined)
+            ?? stallNameMap.get(stallName.toLowerCase());
+
+          if (!stallId) {
+            warnings.push(`Skipped variant row for "${v["Item Name"]}": could not find stall.`);
+            continue;
+          }
+
           const excelItemId = Number(v["Item ID"]);
-          const itemName = v["Item Name"];
-          const itemId = itemIdMap.get(excelItemId) || itemIdMap.get(itemName);
+          const itemName = String(v["Item Name"] || '').trim();
+          const itemId = (excelItemId > 0 ? itemIdMap.get(excelItemId) : undefined)
+            ?? itemKeyMap.get(`${stallId}::${itemName.toLowerCase()}`);
 
-          if (!itemId) continue;
+          if (!itemId) {
+            warnings.push(`Skipped variant row: could not find item "${itemName}" in stall "${stallName || excelStallId}".`);
+            continue;
+          }
 
-          // Make sure section exists
           const excelSectionId = Number(v["Section ID"]);
-          const sectionName = String(v["Section Name"] || 'Unnamed Variant');
+          const sectionName = String(v["Section Name"] || '').trim();
+          if (!sectionName) {
+            warnings.push(`Skipped variant row: missing "Section Name".`);
+            continue;
+          }
+
           const minSel = Number(v["Min Selections"]) || 0;
           const maxSel = Number(v["Max Selections"]) || 1;
 
+          if (minSel > maxSel) {
+            warnings.push(`Skipped variant "${sectionName}" for item "${itemName}": Min Selections (${minSel}) cannot exceed Max Selections (${maxSel}).`);
+            continue;
+          }
+
           let finalSectionId = 0;
-          if (excelSectionId > 0 && sectionIdMap.has(excelSectionId)) {
-             finalSectionId = sectionIdMap.get(excelSectionId)!;
-          } else if (excelSectionId > 0 && oldSectionIds.includes(excelSectionId)) {
-             const res = await client.query(
-               `UPDATE menu_item_modifier_section SET item_id = $1, name = $2, min_selections = $3, max_selections = $4 WHERE section_id = $5 RETURNING section_id`,
-               [itemId, sectionName, minSel, maxSel, excelSectionId]
-             );
-             finalSectionId = res.rows[0]?.section_id;
-             sectionIdMap.set(excelSectionId, finalSectionId);
-          } else {
-             const res = await client.query(
-               `INSERT INTO menu_item_modifier_section (item_id, name, min_selections, max_selections) VALUES ($1, $2, $3, $4) RETURNING section_id`,
-               [itemId, sectionName, minSel, maxSel]
-             );
-             finalSectionId = res.rows[0]?.section_id;
-             if (excelSectionId > 0) sectionIdMap.set(excelSectionId, finalSectionId);
+          try {
+            if (excelSectionId > 0 && sectionIdMap.has(excelSectionId)) {
+              finalSectionId = sectionIdMap.get(excelSectionId)!;
+            } else if (excelSectionId > 0 && oldSectionIds.includes(excelSectionId)) {
+              const res = await client.query(
+                `UPDATE menu_item_modifier_section SET item_id = $1, name = $2, min_selections = $3, max_selections = $4 WHERE section_id = $5 RETURNING section_id`,
+                [itemId, sectionName, minSel, maxSel, excelSectionId]
+              );
+              finalSectionId = res.rows[0]?.section_id;
+              if (finalSectionId) sectionIdMap.set(excelSectionId, finalSectionId);
+            } else {
+              const res = await client.query(
+                `INSERT INTO menu_item_modifier_section (item_id, name, min_selections, max_selections) VALUES ($1, $2, $3, $4) RETURNING section_id`,
+                [itemId, sectionName, minSel, maxSel]
+              );
+              finalSectionId = res.rows[0]?.section_id;
+              if (finalSectionId && excelSectionId > 0) sectionIdMap.set(excelSectionId, finalSectionId);
+            }
+          } catch (e: any) {
+            throw new Error(`Failed to import modifier section "${sectionName}" for item "${itemName}": ${e.message}`);
+          }
+
+          if (!finalSectionId) {
+            throw new Error(`Failed to import modifier section "${sectionName}": could not get database ID.`);
           }
 
           // Options
           const excelOptionId = Number(v["Option ID"]);
           const optionName = v["Option Name"];
-          if (!optionName) continue; // no actual option for this row
+          if (!optionName) continue;
 
           const optionPrice = Number(v["Price Modifier"]) || 0;
           const isAvail = v.hasOwnProperty("Option Is Available") ? parseBool(v["Option Is Available"]) : true;
 
-          if (excelOptionId > 0 && oldOptionIds.includes(excelOptionId)) {
-             await client.query(
-               `UPDATE menu_item_modifier SET section_id = $1, item_id = $2, name = $3, price_modifier = $4, is_available = $5 WHERE option_id = $6`,
-               [finalSectionId, itemId, optionName, optionPrice, isAvail, excelOptionId]
-             );
-          } else {
-             await client.query(
-               `INSERT INTO menu_item_modifier (section_id, item_id, name, price_modifier, is_available) VALUES ($1, $2, $3, $4, $5)`,
-               [finalSectionId, itemId, optionName, optionPrice, isAvail]
-             );
+          try {
+            if (excelOptionId > 0 && oldOptionIds.includes(excelOptionId)) {
+              await client.query(
+                `UPDATE menu_item_modifier SET section_id = $1, item_id = $2, name = $3, price_modifier = $4, is_available = $5 WHERE option_id = $6`,
+                [finalSectionId, itemId, optionName, optionPrice, isAvail, excelOptionId]
+              );
+            } else {
+              await client.query(
+                `INSERT INTO menu_item_modifier (section_id, item_id, name, price_modifier, is_available) VALUES ($1, $2, $3, $4, $5)`,
+                [finalSectionId, itemId, optionName, optionPrice, isAvail]
+              );
+            }
+          } catch (e: any) {
+            throw new Error(`Failed to import option "${optionName}" for section "${sectionName}": ${e.message}`);
           }
         }
-        
-        return successResponse(SuccessCodes.OK, { imported: true });
+
+        if (warnings.length > 0) {
+          console.warn("[StallService.importStallsForVenue] Warnings:", warnings);
+        }
+
+        return successResponse(SuccessCodes.OK, {
+          imported: true,
+          stallsImported: stallsData.length,
+          itemsImported: itemsData.length,
+          variantsImported: variantsData.length,
+          warnings: warnings.length > 0 ? warnings : undefined,
+        });
       });
     } catch (error: any) {
-      console.error("[StallService.importStallsForVenue] DB error:", error);
-      return errorResponse(ErrorCodes.DATABASE_ERROR, error.message || String(error));
+      console.error("[StallService.importStallsForVenue]", error);
+      return errorResponse(ErrorCodes.DATABASE_ERROR,
+        `Import failed: ${error.message || String(error)}`);
     }
   },
 

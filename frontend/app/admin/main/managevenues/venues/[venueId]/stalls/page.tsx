@@ -389,7 +389,18 @@ export default function Stalls() {
                         throw new Error(resData?.payload?.message ?? "Import failed");
                     }
 
-                    window.location.reload();
+                    const payload = resData.payload?.data;
+                    let message = `Import successful. ${payload?.stallsImported ?? '?'} stalls, ${payload?.itemsImported ?? '?'} items, ${payload?.variantsImported ?? '?'} variant rows imported.`;
+
+                    if (payload?.warnings && payload.warnings.length > 0) {
+                        message += `\n\nWarnings (${payload.warnings.length}):\n${payload.warnings.join('\n')}`;
+                        setError(null);
+                        setTimeout(() => window.location.reload(), 500);
+                    } else {
+                        window.location.reload();
+                    }
+
+                    alert(message);
                 } catch (err: any) {
                     setError(err?.message ?? "Error parsing or importing Excel file");
                 } finally {
