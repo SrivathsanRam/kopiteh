@@ -85,29 +85,7 @@ export function OrderRow({ order, isExpanded, isLoadingItems, onToggleExpand }: 
                 </div>
               </div>
             ) : order.items && order.items.length > 0 ? (
-              <>
-                <OrderItemsList items={order.items} />
-                {(() => {
-                  const itemsTotal = order.items.reduce((sum, item) => {
-                    const basePrice = parseFloat(item.price.toString())
-                    const modifierTotal = item.modifiers?.reduce(
-                      (s, mod) => s + parseFloat(mod.price_modifier.toString()),
-                      0
-                    ) ?? 0
-                    return sum + (basePrice + modifierTotal) * item.quantity
-                  }, 0)
-                  const itemsTotalRounded = Math.round(itemsTotal * 100) / 100
-                  const orderTotalRounded = Math.round(parseFloat(order.total_price.toString()) * 100) / 100
-                  return (
-                    <div className={`mt-4 pt-3 border-t text-sm font-medium text-right ${itemsTotalRounded === orderTotalRounded ? 'text-gray-900' : 'text-red-600'}`}>
-                      Items subtotal: ${itemsTotalRounded.toFixed(2)}
-                      {itemsTotalRounded !== orderTotalRounded && (
-                        <span className="ml-3">| Order total: ${orderTotalRounded.toFixed(2)}</span>
-                      )}
-                    </div>
-                  )
-                })()}
-              </>
+              <OrderItemsList items={order.items} />
             ) : (
               <p className="text-gray-600 text-center">No items found for this order</p>
             )}
