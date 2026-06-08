@@ -57,15 +57,12 @@ export function OrderItemsList({ items }: OrderItemsListProps) {
               {item.modifiers && item.modifiers.length > 0 && (
                 <div className="mt-2 pl-4 border-l-2 border-gray-300">
                   <p className="text-xs font-medium text-gray-700 mb-1">Modifiers:</p>
-                  {item.modifiers.map((mod) => {
-                    const modQtyTotal = parseFloat(mod.price_modifier.toString()) * item.quantity
-                    return (
-                      <div key={mod.order_item_option_id} className="flex justify-between text-xs text-gray-600">
-                        <span>• {mod.option_name}</span>
-                        <span>+${modQtyTotal.toFixed(2)}</span>
-                      </div>
-                    )
-                  })}
+                  {item.modifiers.map((mod) => (
+                    <div key={mod.order_item_option_id} className="flex justify-between text-xs text-gray-600">
+                      <span>• {mod.option_name}</span>
+                      <span>+${parseFloat(mod.price_modifier.toString()).toFixed(2)}</span>
+                    </div>
+                  ))}
                 </div>
               )}
               {item.remarks && (

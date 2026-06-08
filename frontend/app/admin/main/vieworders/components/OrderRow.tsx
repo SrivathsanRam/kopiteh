@@ -96,12 +96,13 @@ export function OrderRow({ order, isExpanded, isLoadingItems, onToggleExpand }: 
                     ) ?? 0
                     return sum + (basePrice + modifierTotal) * item.quantity
                   }, 0)
-                  const orderTotal = parseFloat(order.total_price.toString())
+                  const itemsTotalRounded = Math.round(itemsTotal * 100) / 100
+                  const orderTotalRounded = Math.round(parseFloat(order.total_price.toString()) * 100) / 100
                   return (
-                    <div className={`mt-4 pt-3 border-t text-sm font-medium text-right ${itemsTotal === orderTotal ? 'text-gray-900' : 'text-red-600'}`}>
-                      Items subtotal: ${itemsTotal.toFixed(2)}
-                      {itemsTotal !== orderTotal && (
-                        <span className="ml-3">| Order total: ${orderTotal.toFixed(2)}</span>
+                    <div className={`mt-4 pt-3 border-t text-sm font-medium text-right ${itemsTotalRounded === orderTotalRounded ? 'text-gray-900' : 'text-red-600'}`}>
+                      Items subtotal: ${itemsTotalRounded.toFixed(2)}
+                      {itemsTotalRounded !== orderTotalRounded && (
+                        <span className="ml-3">| Order total: ${orderTotalRounded.toFixed(2)}</span>
                       )}
                     </div>
                   )

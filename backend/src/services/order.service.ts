@@ -140,12 +140,10 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
 
   async updateStatus(id: number): Promise<ServiceResult<any>> {
     try {
-      // get the list of order items for the order
       const orderItemStatus = await BaseService.query(
         'SELECT status FROM Order_Item WHERE order_id = $1',
         [id]
       );
-      // check if order_items are all served or cancelled
       const allCompleted = orderItemStatus.rows.every(
         (item: any) => item.status === OrderItemStatusCodes.SERVED || item.status === OrderItemStatusCodes.CANCELLED);
       const allCancelled = orderItemStatus.rows.every(
@@ -154,12 +152,30 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
       if (allCompleted) {
         if (allCancelled) {
           result = await BaseService.query(
-            'UPDATE "order" SET status = $1 WHERE order_id = $2 RETURNING *', 
+            `UPDATE "order" SET status = $1, total_price = (
+              SELECT COALESCE(SUM((oi.price + COALESCE(mod_sum.modifier_total, 0)) * oi.quantity), 0)
+              FROM order_item oi
+              LEFT JOIN (
+                SELECT order_item_id, SUM(price_modifier) AS modifier_total
+                FROM order_item_modifiers
+                GROUP BY order_item_id
+              ) mod_sum ON oi.order_item_id = mod_sum.order_item_id
+              WHERE oi.order_id = $2
+            ) WHERE order_id = $2 RETURNING *`,
             [OrderStatusCodes.CANCELLED, id]
           )
         } else {
           result = await BaseService.query(
-            'UPDATE "order" SET status = $1 WHERE order_id = $2 RETURNING *', 
+            `UPDATE "order" SET status = $1, total_price = (
+              SELECT COALESCE(SUM((oi.price + COALESCE(mod_sum.modifier_total, 0)) * oi.quantity), 0)
+              FROM order_item oi
+              LEFT JOIN (
+                SELECT order_item_id, SUM(price_modifier) AS modifier_total
+                FROM order_item_modifiers
+                GROUP BY order_item_id
+              ) mod_sum ON oi.order_item_id = mod_sum.order_item_id
+              WHERE oi.order_id = $2
+            ) WHERE order_id = $2 RETURNING *`,
             [OrderStatusCodes.COMPLETED, id]
           )
         }
@@ -316,6 +332,15 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
       const page = filters.page || 1;
       const limit = filters.limit || 15;
       const offset = (page - 1) * limit;
+
+      // Clean up zombie orders (COMPLETED but with 0 items)
+      await BaseService.query(
+        `UPDATE "order" SET status = 'CANCELLED'
+         WHERE status = 'COMPLETED'
+         AND NOT EXISTS (
+           SELECT 1 FROM order_item WHERE order_item.order_id = "order".order_id
+         )`
+      );
 
       let countQuery = `
         SELECT (COUNT(DISTINCT o.order_id) + COUNT(DISTINCT coi.order_item_id))::int as total
