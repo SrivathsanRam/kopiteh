@@ -290,6 +290,44 @@ export const StallService = {
           stallNameMap.set(name.toLowerCase(), finalStallId);
         }
 
+        // --- RESOLVE CATEGORIES ---
+        const categoryMap = new Map<number, number>(); // Excel category_id -> DB category_id
+        const catStallMap = new Map<number, number>(); // Excel category_id -> stall_id
+
+        for (const i of itemsData) {
+          const catId = Number(i["Category ID"]);
+          if (!catId || catId <= 0 || categoryMap.has(catId)) continue;
+
+          const excelStallId = Number(i["Stall ID"]);
+          const stallName = String(i["Stall Name"] || '').trim();
+          const stallId = (excelStallId > 0 ? stallIdMap.get(excelStallId) : undefined)
+            ?? stallNameMap.get(stallName.toLowerCase());
+
+          if (stallId) catStallMap.set(catId, stallId);
+        }
+
+        if (catStallMap.size > 0) {
+          const catIds = [...catStallMap.keys()];
+          const existingCats = await client.query(
+            'SELECT category_id FROM menu_item_category WHERE category_id = ANY($1)',
+            [catIds]
+          );
+          const existingCatIds = new Set(existingCats.rows.map(r => r.category_id));
+
+          for (const [catId, stallId] of catStallMap) {
+            if (existingCatIds.has(catId)) {
+              categoryMap.set(catId, catId);
+            } else {
+              const res = await client.query(
+                `INSERT INTO menu_item_category (stall_id, name, sort_order) VALUES ($1, $2, $3) RETURNING category_id`,
+                [stallId, String(catId), 0]
+              );
+              const newCatId = res.rows[0]?.category_id;
+              if (newCatId) categoryMap.set(catId, newCatId);
+            }
+          }
+        }
+
         // --- UPSERT ITEMS ---
         const itemIdMap = new Map<number, number>();      // Excel Item ID -> DB ID
         const itemKeyMap = new Map<string, number>();     // "stallId::name" -> DB ID
@@ -307,7 +345,8 @@ export const StallService = {
 
           const excelId = Number(i["Item ID"]);
           const name = String(i["Item Name"] || '').trim();
-          const categoryId = Number(i["Category ID"]) || null;
+          const rawCatId = Number(i["Category ID"]);
+          const categoryId = rawCatId > 0 ? (categoryMap.get(rawCatId) || null) : null;
           const price = Number(i["Price"]) || 0;
           const isAvail = i.hasOwnProperty("Is Available") ? parseBool(i["Is Available"]) : true;
           const prepTime = Number(i["Prep Time"]) || 0;
