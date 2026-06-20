@@ -237,6 +237,7 @@ export const OrderItemService = {
         result = await findStandardById(orderItemId);        
         // Send WebSocket notification
         WebSocketService.notifyStallOrderItemCreated(result.stall_id, result);
+        if (result.user_id) WebSocketService.notifyUserOrderItemCreated(result.user_id, result);
                 return successResponse(SuccessCodes.CREATED, result);
         
       } else {
@@ -259,6 +260,7 @@ export const OrderItemService = {
         // Send WebSocket notification
         const customItem = result.rows[0];
         WebSocketService.notifyStallOrderItemCreated(customItem.stall_id, customItem);
+        if (customItem.user_id) WebSocketService.notifyUserOrderItemCreated(customItem.user_id, customItem);
         
         return successResponse(SuccessCodes.CREATED, customItem);
       }
@@ -316,19 +318,21 @@ export const OrderItemService = {
         
         // Send WebSocket notification
         WebSocketService.notifyStallOrderItemUpdated(result.stall_id, result);
+        if (result.user_id) WebSocketService.notifyUserOrderItemUpdated(result.user_id, result);
         
         return successResponse(SuccessCodes.OK, result);
       } else {
         const query = `UPDATE custom_order_item SET ${setClause} WHERE order_item_id = $${
           entries.length + 1
         } RETURNING *, CONCAT('CUSTOM-', order_item_id::text) AS order_id, \'CUSTOM\' AS type`;
-        const result = await BaseService.query(query, [...values, id]);
-        if (!result.rows[0])
+        const res = await BaseService.query(query, [...values, id]);
+        if (!res.rows[0])
           return errorResponse(ErrorCodes.NOT_FOUND, 'Custom Order Item not found');
         
         // Send WebSocket notification
-        const customItem = result.rows[0];
+        const customItem = res.rows[0];
         WebSocketService.notifyStallOrderItemUpdated(customItem.stall_id, customItem);
+        if (customItem.user_id) WebSocketService.notifyUserOrderItemUpdated(customItem.user_id, customItem);
         
         return successResponse(SuccessCodes.OK, customItem);
       }
@@ -368,6 +372,7 @@ export const OrderItemService = {
         
         // Send WebSocket notification
         WebSocketService.notifyStallOrderItemUpdated(result.stall_id, result);
+        if (result.user_id) WebSocketService.notifyUserOrderItemUpdated(result.user_id, result);
         
         return successResponse(SuccessCodes.OK, result);
       } else {
@@ -379,6 +384,7 @@ export const OrderItemService = {
         // Send WebSocket notification
         const customItem = result.rows[0];
         WebSocketService.notifyStallOrderItemUpdated(customItem.stall_id, customItem);
+        if (customItem.user_id) WebSocketService.notifyUserOrderItemUpdated(customItem.user_id, customItem);
         
         return successResponse<FetchOrderItemResponsePayload>(SuccessCodes.OK, customItem);
       }
@@ -406,6 +412,7 @@ export const OrderItemService = {
         
         // Send WebSocket notification
         WebSocketService.notifyStallOrderItemUpdated(result.stall_id, result);
+        if (result.user_id) WebSocketService.notifyUserOrderItemUpdated(result.user_id, result);
         
         return successResponse(SuccessCodes.OK, result);
       } else {
@@ -425,6 +432,7 @@ export const OrderItemService = {
         // Send WebSocket notification
         const customItem = result.rows[0];
         WebSocketService.notifyStallOrderItemUpdated(customItem.stall_id, customItem);
+        if (customItem.user_id) WebSocketService.notifyUserOrderItemUpdated(customItem.user_id, customItem);
         
         return successResponse<FetchOrderItemResponsePayload>(SuccessCodes.OK, customItem);
       }

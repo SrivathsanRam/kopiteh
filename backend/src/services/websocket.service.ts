@@ -104,6 +104,34 @@ export const WebSocketService = {
     }
   },
 
+  // Notify user room when a new order item is created
+  notifyUserOrderItemCreated(userId: number, orderItem: any) {
+    try {
+      if (!io) {
+        console.warn('Socket.IO not initialized');
+        return;
+      }
+      io.to(`user_${userId}`).emit('order_item_created', { orderItem });
+      console.log(`Notified user_${userId} of new order item:`, orderItem.order_item_id);
+    } catch (err) {
+      console.error('WebSocket emit error:', err);
+    }
+  },
+
+  // Notify user room when an order item is updated
+  notifyUserOrderItemUpdated(userId: number, orderItem: any) {
+    try {
+      if (!io) {
+        console.warn('Socket.IO not initialized');
+        return;
+      }
+      io.to(`user_${userId}`).emit('order_item_updated', { orderItem });
+      console.log(`Notified user_${userId} of updated order item:`, orderItem.order_item_id);
+    } catch (err) {
+      console.error('WebSocket emit error:', err);
+    }
+  },
+
   getIO() {
     return io;
   },

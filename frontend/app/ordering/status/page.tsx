@@ -41,8 +41,35 @@ export default function OrderStatusPage() {
       ));
     });
 
+    socket.on("order_item_updated", (data) => {
+      // data format: { orderItem: { order_item_id, status, ... } }
+      setOrders(prev => prev.map(order => {
+        const updatedItems = order.items?.map((item: any) =>
+          item.order_item_id === data.orderItem.order_item_id
+            ? { ...item, status: data.orderItem.status }
+            : item
+        );
+
+        if (!updatedItems) return order;
+
+        const allServedOrCancelled = updatedItems.every(
+          (i: any) => i.status === 'SERVED' || i.status === 'CANCELLED'
+        );
+        const allCancelled = updatedItems.every(
+          (i: any) => i.status === 'CANCELLED'
+        );
+
+        if (allServedOrCancelled) {
+          return { ...order, items: updatedItems, status: allCancelled ? 'CANCELLED' : 'COMPLETED' };
+        }
+
+        return { ...order, items: updatedItems };
+      }));
+    });
+
     return () => {
       socket.off("order_status_updated");
+      socket.off("order_item_updated");
     };
   }, [tableId]);
 
@@ -106,9 +133,12 @@ export default function OrderStatusPage() {
                   {order.items?.map((item: any, idx: number) => (
                     <div key={idx} className="border-b border-slate-50 pb-3 last:border-none">
                       <div className="flex justify-between items-center text-sm mb-1">
-                        <div className="flex gap-3">
+                        <div className="flex gap-3 items-center">
                           <span className="font-bold text-slate-400">{item.quantity}x</span>
                           <span className="text-slate-700 font-medium">{item.name || item.order_item_name}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${getItemStatusBadge(item.status).bg}`}>
+                            {getItemStatusBadge(item.status).label}
+                          </span>
                         </div>
                         <span className="font-semibold text-slate-800">
                           ${(
@@ -184,4 +214,19 @@ function getStatusIcon(status: string) {
         case 'completed': return <CheckCircle2 size={14} />;
         default: return null;
     }
+}
+
+function getItemStatusBadge(status: string) {
+  switch(status.toUpperCase()) {
+    case 'INCOMING':
+      return { label: 'In Queue', bg: 'bg-amber-50 text-amber-700 border border-amber-200' };
+    case 'PREPARING':
+      return { label: 'Preparing', bg: 'bg-blue-50 text-blue-600 border border-blue-200 animate-pulse' };
+    case 'SERVED':
+      return { label: 'Served', bg: 'bg-green-50 text-green-700 border border-green-200' };
+    case 'CANCELLED':
+      return { label: 'Cancelled', bg: 'bg-red-50 text-red-700 border border-red-200' };
+    default:
+      return { label: status, bg: 'bg-slate-50 text-slate-500 border border-slate-200' };
+  }
 }
