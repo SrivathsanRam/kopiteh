@@ -82,6 +82,9 @@ function OrderItemDetails({ open, onClose, orderItem, onOrderItemUpdated }: Orde
           <div className="text-xs text-gray-500 flex justify-between w-full">
             <div className="flex flex-col">
               <span>Table: {currentItem.table_number}</span>
+              {currentItem.order_id && (
+                <span>Order #{currentItem.order_id}</span>
+              )}
               <span>Volunteer: {currentItem.volunteer_name}</span>
             </div>
             <div className="flex items-center gap-1">

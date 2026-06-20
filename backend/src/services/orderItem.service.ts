@@ -32,7 +32,7 @@ const CUSTOM_ITEM_COLUMNS = new Set([
 async function findStandardById(id: number): Promise<FetchOrderItemResponsePayload> {
   try {    
     const result = await BaseService.query(
-      `SELECT oi.order_item_id, m.stall_id, s.name as stall_name, o.table_id, t.table_number, o.user_id, m.name as order_item_name, 
+      `SELECT oi.order_item_id, o.order_id, m.stall_id, s.name as stall_name, o.table_id, t.table_number, o.user_id, m.name as order_item_name, 
       oi.status, oi.quantity, oi.price, o.created_at, oi.remarks, o.volunteer_name, \'STANDARD\' AS type
       FROM order_item oi 
       JOIN menu_item m ON oi.item_id = m.item_id 
@@ -115,7 +115,7 @@ export const OrderItemService = {
   async findByOrder(order_id: number): Promise<ServiceResult<FetchOrderItemResponsePayload[]>> {
     try {
       const baseItems = await BaseService.query(
-        `SELECT oi.order_item_id, m.stall_id, s.name as stall_name, o.table_id, t.table_number, o.user_id, m.name as order_item_name, 
+        `SELECT oi.order_item_id, o.order_id, m.stall_id, s.name as stall_name, o.table_id, t.table_number, o.user_id, m.name as order_item_name, 
         oi.item_id, oi.status, oi.quantity, oi.price, o.created_at, oi.remarks, o.volunteer_name, 'STANDARD' AS type
         FROM order_item oi 
         JOIN menu_item m ON oi.item_id = m.item_id 
@@ -161,7 +161,7 @@ export const OrderItemService = {
       }
 
       const customResult = await BaseService.query(
-        `SELECT coi.*, t.table_number, 'CUSTOM' AS type 
+        `SELECT coi.*, t.table_number, CONCAT('CUSTOM-', coi.order_item_id::text) AS order_id, 'CUSTOM' AS type 
          FROM custom_order_item coi
          LEFT JOIN "table" t ON coi.table_id = t.table_id
          WHERE coi.stall_id = $1 AND coi.created_at >= NOW() - INTERVAL '7 days'
@@ -188,7 +188,7 @@ export const OrderItemService = {
         return successResponse(SuccessCodes.OK, {...result});
       } else {
         result = await BaseService.query(
-          `SELECT coi.*, t.table_number, 'CUSTOM' AS type 
+          `SELECT coi.*, t.table_number, CONCAT('CUSTOM-', coi.order_item_id::text) AS order_id, 'CUSTOM' AS type 
            FROM custom_order_item coi
            LEFT JOIN "table" t ON coi.table_id = t.table_id
            WHERE coi.order_item_id = $1`,
@@ -243,7 +243,7 @@ export const OrderItemService = {
         const customItemPayload = request as CustomOrderItemPayload;
         result = await BaseService.query(
           `INSERT INTO custom_order_item (stall_id, table_id, user_id, order_item_name, status, quantity, price, created_at, remarks, volunteer_name) 
-          VALUES ($1,$2,$3,$4,'INCOMING',$5,$6,NOW(),$7,$8) RETURNING *, \'CUSTOM\' AS type`,
+          VALUES ($1,$2,$3,$4,'INCOMING',$5,$6,NOW(),$7,$8) RETURNING *, CONCAT('CUSTOM-', order_item_id::text) AS order_id, \'CUSTOM\' AS type`,
           [
             customItemPayload.stall_id,
             customItemPayload.table_id,
@@ -321,7 +321,7 @@ export const OrderItemService = {
       } else {
         const query = `UPDATE custom_order_item SET ${setClause} WHERE order_item_id = $${
           entries.length + 1
-        } RETURNING *, \'CUSTOM\' AS type`;
+        } RETURNING *, CONCAT('CUSTOM-', order_item_id::text) AS order_id, \'CUSTOM\' AS type`;
         const result = await BaseService.query(query, [...values, id]);
         if (!result.rows[0])
           return errorResponse(ErrorCodes.NOT_FOUND, 'Custom Order Item not found');
@@ -372,7 +372,7 @@ export const OrderItemService = {
         return successResponse(SuccessCodes.OK, result);
       } else {
         const result = await BaseService.query(
-          'UPDATE custom_order_item SET status = $1 WHERE order_item_id = $2 RETURNING *, \'CUSTOM\' AS type',
+          'UPDATE custom_order_item SET status = $1 WHERE order_item_id = $2 RETURNING *, CONCAT(\'CUSTOM-\', order_item_id::text) AS order_id, \'CUSTOM\' AS type',
           [nextStatus, id]
         );
         
@@ -418,7 +418,7 @@ export const OrderItemService = {
           return errorResponse(ErrorCodes.VALIDATION_ERROR, 'Cannot revert from current status');
         }
         const result = await BaseService.query(
-          'UPDATE custom_order_item SET status = $1 WHERE order_item_id = $2 RETURNING *, \'CUSTOM\' AS type',
+          'UPDATE custom_order_item SET status = $1 WHERE order_item_id = $2 RETURNING *, CONCAT(\'CUSTOM-\', order_item_id::text) AS order_id, \'CUSTOM\' AS type',
           [prevStatus, id]
         );
         
@@ -445,7 +445,7 @@ export const OrderItemService = {
         return successResponse(SuccessCodes.OK, result);
       } else {
         const result = await BaseService.query(
-          'UPDATE custom_order_item SET status = $1 WHERE order_item_id = $2 RETURNING *, \'CUSTOM\' AS type',
+          'UPDATE custom_order_item SET status = $1 WHERE order_item_id = $2 RETURNING *, CONCAT(\'CUSTOM-\', order_item_id::text) AS order_id, \'CUSTOM\' AS type',
           [OrderItemStatusCodes.CANCELLED, id]
         );
         if (result.rowCount === 0)

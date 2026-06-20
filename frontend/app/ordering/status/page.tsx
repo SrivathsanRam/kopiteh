@@ -88,6 +88,11 @@ export default function OrderStatusPage() {
                   <div>
                     <h3 className="text-lg font-bold text-slate-800">Order #{order.order_id}</h3>
                     <p className="text-xs text-slate-400">Placed at {new Date(order.created_at).toLocaleTimeString()}</p>
+                    {order.items?.[0]?.volunteer_name && (
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        By {order.items[0].volunteer_name}
+                      </p>
+                    )}
                   </div>
                   
                   {/* STATUS PILL WITH COLOURS */}

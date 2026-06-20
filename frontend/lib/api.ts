@@ -146,6 +146,7 @@ export const api = {
     const response = await fetchClient<any>(`/orderItem/stall/${stallId}`);
     return response.map((item: any) => ({
       order_item_id: item.order_item_id,
+      order_id: item.order_id,
       stall_id: item.stall_id,
       table_id: item.table_id,
       table_number: item.table_number,

@@ -23,6 +23,7 @@ export interface Order {
 
 export interface OrderItem {
   order_item_id: ID;
+  order_id?: ID | string | null;
   stall_id: ID;
   table_id: ID | null;
   table_number?: string | null;
