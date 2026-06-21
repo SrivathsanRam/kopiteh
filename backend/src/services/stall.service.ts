@@ -119,6 +119,21 @@ export const StallService = {
 
       const warnings: string[] = [];
 
+      // Log raw data keys for diagnosis
+      if (itemsData.length > 0) {
+        console.log("[import] ItemsData[0] keys:", Object.keys(itemsData[0]));
+        console.log("[import] ItemsData[0] sample:", JSON.stringify(itemsData[0]));
+      }
+      if (variantsData.length > 0) {
+        console.log("[import] VariantsData[0] keys:", Object.keys(variantsData[0]));
+        console.log("[import] VariantsData[0] sample:", JSON.stringify(variantsData[0]));
+      }
+      if (stallsData.length > 0) {
+        console.log("[import] StallsData[0] keys:", Object.keys(stallsData[0]));
+        console.log("[import] StallsData[0] sample:", JSON.stringify(stallsData[0]));
+      }
+      console.log("[import] stallsData.length:", stallsData.length, "itemsData.length:", itemsData.length, "variantsData.length:", variantsData.length);
+
       // --- Validate input ---
       const venueCheck = await BaseService.query('SELECT venue_id FROM venue WHERE venue_id = $1', [venueId]);
       if (!venueCheck.rows[0]) {
@@ -185,6 +200,12 @@ export const StallService = {
             oldOptionIds = oldOptionsRes.rows.map(r => r.option_id);
           }
         }
+
+        console.log(`[import] oldStallIds (${oldStallIds.length}):`, oldStallIds);
+        console.log(`[import] oldItemIds (${oldItemIds.length}):`, oldItemIds);
+        console.log(`[import] oldSectionIds (${oldSectionIds.length}):`, oldSectionIds);
+        console.log(`[import] incomingStallIds (${incomingStallIds.length}):`, incomingStallIds);
+        console.log(`[import] incomingItemIds (${incomingItemIds.length}):`, incomingItemIds);
 
         // Delete discarded records bottom-up using SAVEPOINTS
         // FK violations are handled by falling back to soft-delete
@@ -271,6 +292,14 @@ export const StallService = {
                 [name, description, image, isOpen, allowRemarks, excelId]
               );
               finalStallId = res.rows[0]?.stall_id;
+              if (!finalStallId) {
+                // stall was cleaned up; insert a new one
+                const insRes = await client.query(
+                  `INSERT INTO stall (venue_id, name, description, stall_image, is_open, allow_remarks) VALUES ($1, $2, $3, $4, $5, $6) RETURNING stall_id`,
+                  [venueId, name, description, image, isOpen, allowRemarks]
+                );
+                finalStallId = insRes.rows[0]?.stall_id;
+              }
             } else {
               const res = await client.query(
                 `INSERT INTO stall (venue_id, name, description, stall_image, is_open, allow_remarks) VALUES ($1, $2, $3, $4, $5, $6) RETURNING stall_id`,
@@ -307,16 +336,13 @@ export const StallService = {
         }
 
         if (catStallMap.size > 0) {
-          const catIds = [...catStallMap.keys()];
-          const existingCats = await client.query(
-            'SELECT category_id FROM menu_item_category WHERE category_id = ANY($1)',
-            [catIds]
-          );
-          const existingCatIds = new Set(existingCats.rows.map(r => r.category_id));
-
           for (const [catId, stallId] of catStallMap) {
-            if (existingCatIds.has(catId)) {
-              categoryMap.set(catId, catId);
+            const existing = await client.query(
+              'SELECT category_id FROM menu_item_category WHERE stall_id = $1 AND name = $2',
+              [stallId, String(catId)]
+            );
+            if (existing.rows.length > 0) {
+              categoryMap.set(catId, existing.rows[0].category_id);
             } else {
               const res = await client.query(
                 `INSERT INTO menu_item_category (stall_id, name, sort_order) VALUES ($1, $2, $3) RETURNING category_id`,
@@ -338,6 +364,8 @@ export const StallService = {
           const stallId = (excelStallId > 0 ? stallIdMap.get(excelStallId) : undefined)
             ?? stallNameMap.get(stallName.toLowerCase());
 
+          console.log(`[import] Item "${i["Item Name"]}": excelStallId=${excelStallId} stallName="${stallName}" resolvedStallId=${stallId} stallIdMapSize=${stallIdMap.size} stallNameMapSize=${stallNameMap.size}`);
+
           if (!stallId) {
             warnings.push(`Skipped item "${i["Item Name"]}": could not find stall "${stallName || excelStallId}".`);
             continue;
@@ -347,10 +375,14 @@ export const StallService = {
           const name = String(i["Item Name"] || '').trim();
           const rawCatId = Number(i["Category ID"]);
           const categoryId = rawCatId > 0 ? (categoryMap.get(rawCatId) || null) : null;
-          const price = Number(i["Price"]) || 0;
+          const priceRaw = i["Price"];
+          const price = (priceRaw === undefined || priceRaw === null || priceRaw === '') ? 0 : Number(priceRaw);
           const isAvail = i.hasOwnProperty("Is Available") ? parseBool(i["Is Available"]) : true;
-          const prepTime = Number(i["Prep Time"]) || 0;
+          const rawPrepTime = Number(i["Prep Time"]);
+          const prepTime = Number.isNaN(rawPrepTime) ? 0 : rawPrepTime;
           const desc = i["Description"] ? String(i["Description"]) : null;
+
+          console.log(`[import] Item "${name}": price=${price} isAvail=${isAvail} prepTime=${prepTime} categoryId=${categoryId}`);
 
           if (isNaN(price) || price < 0) {
             warnings.push(`Skipped item "${name}": invalid price "${i["Price"]}".`);
@@ -365,6 +397,14 @@ export const StallService = {
                 [stallId, name, categoryId, price, isAvail, prepTime, desc, excelId]
               );
               finalItemId = res.rows[0]?.item_id;
+              if (!finalItemId) {
+                // item was cascade-deleted by the cleanup above; insert a new one
+                const insRes = await client.query(
+                  `INSERT INTO menu_item (stall_id, name, category_id, price, is_available, prep_time, description) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING item_id`,
+                  [stallId, name, categoryId, price, isAvail, prepTime, desc]
+                );
+                finalItemId = insRes.rows[0]?.item_id;
+              }
             } else {
               const res = await client.query(
                 `INSERT INTO menu_item (stall_id, name, category_id, price, is_available, prep_time, description) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING item_id`,
@@ -386,9 +426,10 @@ export const StallService = {
 
         // --- UPSERT VARIANTS (modifier sections + options) ---
         const sectionIdMap = new Map<number, number>();   // Excel Section ID -> DB ID
+        let variantIdx = 0;
 
         for (const v of variantsData) {
-          const excelStallId = Number(v["Stall ID"]);
+          const variantRow = variantIdx++;          const excelStallId = Number(v["Stall ID"]);
           const stallName = String(v["Stall Name"] || '').trim();
           const stallId = (excelStallId > 0 ? stallIdMap.get(excelStallId) : undefined)
             ?? stallNameMap.get(stallName.toLowerCase());
@@ -415,8 +456,10 @@ export const StallService = {
             continue;
           }
 
-          const minSel = Number(v["Min Selections"]) || 0;
-          const maxSel = Number(v["Max Selections"]) || 1;
+          const rawMinSel = Number(v["Min Selections"]);
+          const minSel = Number.isNaN(rawMinSel) ? 0 : rawMinSel;
+          const rawMaxSel = Number(v["Max Selections"]);
+          const maxSel = Number.isNaN(rawMaxSel) ? 1 : rawMaxSel;
 
           if (minSel > maxSel) {
             warnings.push(`Skipped variant "${sectionName}" for item "${itemName}": Min Selections (${minSel}) cannot exceed Max Selections (${maxSel}).`);
@@ -424,7 +467,9 @@ export const StallService = {
           }
 
           let finalSectionId = 0;
+          const spSec = `sp_var_sec_${variantRow}`;
           try {
+            await client.query(`SAVEPOINT ${spSec}`);
             if (excelSectionId > 0 && sectionIdMap.has(excelSectionId)) {
               finalSectionId = sectionIdMap.get(excelSectionId)!;
             } else if (excelSectionId > 0 && oldSectionIds.includes(excelSectionId)) {
@@ -432,7 +477,16 @@ export const StallService = {
                 `UPDATE menu_item_modifier_section SET item_id = $1, name = $2, min_selections = $3, max_selections = $4 WHERE section_id = $5 RETURNING section_id`,
                 [itemId, sectionName, minSel, maxSel, excelSectionId]
               );
-              finalSectionId = res.rows[0]?.section_id;
+              if (res.rows.length > 0) {
+                finalSectionId = res.rows[0].section_id;
+              } else {
+                // section was cascade-deleted by the cleanup above; insert a new one
+                const insRes = await client.query(
+                  `INSERT INTO menu_item_modifier_section (item_id, name, min_selections, max_selections) VALUES ($1, $2, $3, $4) RETURNING section_id`,
+                  [itemId, sectionName, minSel, maxSel]
+                );
+                finalSectionId = insRes.rows[0]?.section_id;
+              }
               if (finalSectionId) sectionIdMap.set(excelSectionId, finalSectionId);
             } else {
               const res = await client.query(
@@ -442,36 +496,49 @@ export const StallService = {
               finalSectionId = res.rows[0]?.section_id;
               if (finalSectionId && excelSectionId > 0) sectionIdMap.set(excelSectionId, finalSectionId);
             }
+            await client.query(`RELEASE SAVEPOINT ${spSec}`);
           } catch (e: any) {
-            throw new Error(`Failed to import modifier section "${sectionName}" for item "${itemName}": ${e.message}`);
+            await client.query(`ROLLBACK TO SAVEPOINT ${spSec}`);
+            warnings.push(`Failed to import modifier section "${sectionName}" for item "${itemName}": ${e.message}`);
+            continue;
           }
 
-          if (!finalSectionId) {
-            throw new Error(`Failed to import modifier section "${sectionName}": could not get database ID.`);
-          }
+          if (!finalSectionId) continue;
 
           // Options
           const excelOptionId = Number(v["Option ID"]);
           const optionName = v["Option Name"];
           if (!optionName) continue;
 
-          const optionPrice = Number(v["Price Modifier"]) || 0;
+          const rawOptionPrice = Number(v["Price Modifier"]);
+          const optionPrice = Number.isNaN(rawOptionPrice) ? 0 : rawOptionPrice;
           const isAvail = v.hasOwnProperty("Option Is Available") ? parseBool(v["Option Is Available"]) : true;
 
+          const spOpt = `sp_var_opt_${variantRow}`;
           try {
+            await client.query(`SAVEPOINT ${spOpt}`);
             if (excelOptionId > 0 && oldOptionIds.includes(excelOptionId)) {
-              await client.query(
+              const updRes = await client.query(
                 `UPDATE menu_item_modifier SET section_id = $1, item_id = $2, name = $3, price_modifier = $4, is_available = $5 WHERE option_id = $6`,
                 [finalSectionId, itemId, optionName, optionPrice, isAvail, excelOptionId]
               );
+              if (updRes.rowCount === 0) {
+                // option was cascade-deleted by the cleanup above; insert a new one
+                await client.query(
+                  `INSERT INTO menu_item_modifier (section_id, item_id, name, price_modifier, is_available) VALUES ($1, $2, $3, $4, $5)`,
+                  [finalSectionId, itemId, optionName, optionPrice, isAvail]
+                );
+              }
             } else {
               await client.query(
                 `INSERT INTO menu_item_modifier (section_id, item_id, name, price_modifier, is_available) VALUES ($1, $2, $3, $4, $5)`,
                 [finalSectionId, itemId, optionName, optionPrice, isAvail]
               );
             }
+            await client.query(`RELEASE SAVEPOINT ${spOpt}`);
           } catch (e: any) {
-            throw new Error(`Failed to import option "${optionName}" for section "${sectionName}": ${e.message}`);
+            await client.query(`ROLLBACK TO SAVEPOINT ${spOpt}`);
+            warnings.push(`Failed to import option "${optionName}" for section "${sectionName}": ${e.message}`);
           }
         }
 

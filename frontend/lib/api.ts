@@ -90,7 +90,7 @@ export const api = {
         is_available: item.is_available,
         prep_time: item.prep_time
     }))
-    .filter(item => item.is_available === true);
+    .filter(item => item.is_available !== false);
   },
 
   getItemById: async (itemId: number): Promise<MenuItem> => {
