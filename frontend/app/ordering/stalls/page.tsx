@@ -112,13 +112,6 @@ function StallSelectionContent() {
                   <BackButton href="/ordering/table" />
                   <div className="flex items-center gap-3">
                     <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Search</h1>
-                    {tableId && (
-                      <div className="bg-[#f0f4f8] px-4 py-1.5 rounded-full flex items-center justify-center">
-                        <span className="text-[13px] font-bold text-slate-500 uppercase tracking-wider">
-                          Table {tableNumber}
-                        </span>
-                      </div>
-                    )}
                   </div>
               </div>
 

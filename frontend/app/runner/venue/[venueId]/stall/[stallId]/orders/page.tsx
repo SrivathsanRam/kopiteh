@@ -624,6 +624,7 @@ export default function Home() {
                 </div>
 
                 <div className="text-right">
+                  <p className="font-medium whitespace-nowrap">Table {item.table_number}</p>
                   <p className="text-xs text-gray-400">{item.order_id ? (String(item.order_id).startsWith('CUSTOM-') ? 'Custom' : `Order #${item.order_id}`) : ''}</p>
                   <p className="text-sm text-gray-600">{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>

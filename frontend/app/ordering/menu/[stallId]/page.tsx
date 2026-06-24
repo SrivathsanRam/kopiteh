@@ -35,10 +35,9 @@ export default function MenuListPage() {
       if (!stallId) return;
       try {
         setLoading(true);
-        // Fetch Stall, Items, and Categories in parallel
         const [stallData, menuData, categoryData] = await Promise.all([
           api.getStallById(stallId),
-          api.getMenuByStall(stallId),
+          api.getItemsByStall(stallId),
           api.getCategoriesByStall(stallId)
         ]);
         setStall(stallData);
@@ -54,19 +53,20 @@ export default function MenuListPage() {
     fetchData();
   }, [stallId]);
 
-  /**
-   * Grouping Logic:
-   * Maps through the categories from the DB and finds items belonging to each.
-   */
+  const { availableItems, unavailableItems } = useMemo(() => ({
+    availableItems: menuItems.filter(item => item.is_available !== false),
+    unavailableItems: menuItems.filter(item => item.is_available === false),
+  }), [menuItems]);
+
   const groupedMenu = useMemo(() => {
     return categories
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       .map(cat => ({
         ...cat,
-        items: menuItems.filter(item => Number(item.category_id) === cat.category_id)
+        items: availableItems.filter(item => Number(item.category_id) === cat.category_id)
       }))
-      .filter(group => group.items.length > 0); // Only show categories with items
-  }, [categories, menuItems]);
+      .filter(group => group.items.length > 0);
+  }, [categories, availableItems]);
 
   if (loading) {
     return (
@@ -82,17 +82,17 @@ export default function MenuListPage() {
     <div className="min-h-screen bg-white font-sans text-slate-600 pb-32 w-full flex flex-col">
       
     {/* --- HEADER --- */}
-    <div className="relative z-10 h-full flex flex-col justify-between p-6 bg-green-700">
-      <div className="bg-white/90 backdrop-blur-sm rounded-full shadow-sm w-fit">
-            <BackButton 
-              href={`/ordering/stalls?venue=${venueId}&table=${tableId}`} 
-            />
-      </div>
-
-      <div className="text-center pb-2">
-          <h1 className="text-3xl font-bold text-white tracking-wide drop-shadow-md">
-              {stall.name}
-          </h1>
+    <div className="bg-green-700 px-6 pt-6 pb-10">
+      <div className="flex items-center gap-3">
+        <div className="bg-white/90 backdrop-blur-sm rounded-full shadow-sm shrink-0">
+          <BackButton
+            href={`/ordering/stalls?venue=${venueId}&table=${tableId}`}
+          />
+        </div>
+        <h1 className="flex-1 text-3xl font-bold text-white tracking-wide drop-shadow-md text-center">
+          {stall.name}
+        </h1>
+        <div className="shrink-0" style={{ width: '40px' }} />
       </div>
     </div>
 
@@ -118,19 +118,46 @@ export default function MenuListPage() {
         ))}
 
         {/* Fallback for items with no category assigned in DB */}
-        {menuItems.filter(i => !i.category_id).length > 0 && (
+        {availableItems.filter(i => !i.category_id).length > 0 && (
           <section>
             <h2 className="text-xl font-bold text-slate-800 mb-3 border-b border-slate-100 pb-2">
               Others
             </h2>
             <div className="flex flex-col">
-              {menuItems.filter(i => !i.category_id).map((item) => (
+              {availableItems.filter(i => !i.category_id).map((item) => (
                 <StandardMenuCard 
                     key={item.item_id}
                     item={item}
                     href={`/ordering/menu/${stallId}/item/${item.item_id}`}
                     quantity={getItemQty(item.item_id)} 
                 />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Unavailable Items */}
+        {unavailableItems.length > 0 && (
+          <section>
+            <h2 className="text-lg font-semibold text-gray-400 uppercase tracking-wide mb-3 border-b border-slate-100 pb-2">
+              Currently Unavailable
+            </h2>
+            <div className="flex flex-col opacity-50">
+              {unavailableItems.map((item) => (
+                <div
+                  key={item.item_id}
+                  className="flex justify-between items-center p-3 border-b border-slate-100 last:border-none"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-400 line-through">{item.name}</p>
+                    {item.description && (
+                      <p className="text-xs text-gray-400 line-clamp-1 mt-0.5">{item.description}</p>
+                    )}
+                  </div>
+                  <span className="text-sm font-semibold text-gray-400 ml-3">
+                    ${typeof item.price === 'number' ? item.price.toFixed(2) : item.price}
+                  </span>
+                </div>
               ))}
             </div>
           </section>

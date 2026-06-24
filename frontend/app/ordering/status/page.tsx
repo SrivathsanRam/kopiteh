@@ -80,12 +80,12 @@ export default function OrderStatusPage() {
       <div className="max-w-2xl mx-auto p-6 space-y-8">
         
         <header className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 min-w-0">
             <BackButton href="/ordering/stalls" />
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-800">Track My Orders</h1>
+            <div className="flex items-center gap-3 min-w-0">
+              <h1 className="text-2xl font-bold text-slate-800 whitespace-nowrap">Track My Orders</h1>
               {tableNumber && (
-                <div className="bg-[#f0f4f8] px-4 py-1.5 rounded-full flex items-center justify-center">
+                <div className="bg-[#f0f4f8] px-4 py-1.5 rounded-full flex items-center justify-center shrink-0">
                   <span className="text-[13px] font-bold text-slate-500 uppercase tracking-wider">
                     Table {tableNumber}
                   </span>
@@ -132,15 +132,12 @@ export default function OrderStatusPage() {
                 <div className="space-y-4 ml-2">
                   {order.items?.map((item: any, idx: number) => (
                     <div key={idx} className="border-b border-slate-50 pb-3 last:border-none">
-                      <div className="flex justify-between items-center text-sm mb-1">
-                        <div className="flex gap-3 items-center">
-                          <span className="font-bold text-slate-400">{item.quantity}x</span>
-                          <span className="text-slate-700 font-medium">{item.name || item.order_item_name}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${getItemStatusBadge(item.status).bg}`}>
-                            {getItemStatusBadge(item.status).label}
-                          </span>
+                      <div className="flex justify-between items-start text-sm mb-1">
+                        <div className="flex gap-2 items-center min-w-0 flex-1">
+                          <span className="font-bold text-slate-400 shrink-0">{item.quantity}x</span>
+                          <span className="text-slate-700 font-medium truncate">{item.name || item.order_item_name}</span>
                         </div>
-                        <span className="font-semibold text-slate-800">
+                        <span className="font-semibold text-slate-800 shrink-0 ml-2">
                           ${(
                             (Number(item.price) + 
                             (item.modifiers?.reduce((acc: number, mod: any) => acc + Number(mod.price || 0), 0) || 0)
@@ -148,6 +145,9 @@ export default function OrderStatusPage() {
                           ).toFixed(2)}
                         </span>
                       </div>
+                      <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-medium ml-7 mt-0.5 ${getItemStatusBadge(item.status).bg}`}>
+                        {getItemStatusBadge(item.status).label}
+                      </span>
 
                       {/* Display Modifiers */}
                       {item.modifiers && item.modifiers.length > 0 && (
