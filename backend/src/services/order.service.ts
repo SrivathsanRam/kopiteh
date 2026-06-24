@@ -351,6 +351,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
         LEFT JOIN stall cs ON coi.stall_id = cs.stall_id
         LEFT JOIN venue cv ON cs.venue_id = cv.venue_id
         LEFT JOIN stall s ON coi.stall_id = s.stall_id
+        LEFT JOIN users u ON u.user_id = COALESCE(o.user_id, coi.user_id)
       `;
 
       let query = `
@@ -359,6 +360,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
           COALESCE(o.table_id, coi.table_id) as table_id,
           COALESCE(o.user_id, coi.user_id) as user_id,
           COALESCE(o.status, coi.status) as status,
+          u.name as user_name,
           COALESCE(
             (SELECT COALESCE(SUM((oi.price + COALESCE(mod_sum.modifier_total, 0)) * oi.quantity), 0)
              FROM order_item oi
@@ -387,6 +389,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
         LEFT JOIN stall cs ON coi.stall_id = cs.stall_id
         LEFT JOIN venue cv ON cs.venue_id = cv.venue_id
         LEFT JOIN stall s ON coi.stall_id = s.stall_id
+        LEFT JOIN users u ON u.user_id = COALESCE(o.user_id, coi.user_id)
       `;
 
       const conditions: string[] = [];

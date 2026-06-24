@@ -23,6 +23,7 @@ export interface Order extends Omit<BaseOrder, 'table_id'> {
   venue_id: number
   venue_name: string
   order_type?: 'STANDARD' | 'CUSTOM'
+  user_name?: string
   order_item_name?: string  // For custom orders
   quantity?: number         // For custom orders
   unit_price?: string       // For custom orders
@@ -393,9 +394,10 @@ export default function ViewOrders() {
     const XLSX = require("xlsx")
 
     const orderSheet = [
-      ["Order ID", "Date", "Venue", "Table", "Status", "Type", "Total"],
+      ["Order ID", "Orderer Name", "Date", "Venue", "Table", "Status", "Type", "Total"],
       ...orders.map(o => [
         o.order_id,
+        o.user_name ?? "",
         new Date(o.created_at).toLocaleDateString('en-GB'),
         o.venue_name,
         o.table_number,
