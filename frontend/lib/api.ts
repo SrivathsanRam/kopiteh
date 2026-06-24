@@ -108,6 +108,28 @@ export const api = {
     };
   },
 
+  getItemsByStall: async (stallId: number): Promise<MenuItem[]> => {
+    const rawData = await fetchClient<any[]>(`/items/stalls/${stallId}`);
+    return rawData.map((item) => ({
+        item_id: Number(item.item_id),
+        stall_id: Number(item.stall_id),
+        category_id: item.category_id ? Number(item.category_id) : null,
+        name: item.name,
+        description: item.description,
+        price: Number(item.price),
+        item_image: item.item_image,
+        is_available: item.is_available,
+        prep_time: item.prep_time
+    }));
+  },
+
+  toggleItemAvailability: async (itemId: number): Promise<MenuItem> => {
+    const response = await fetchClient<any>(`/items/toggle-availability/${itemId}`, {
+      method: "PATCH"
+    });
+    return response;
+  },
+
   // --- MODIFIERS ---
   getSectionsByItem: async (itemId: number): Promise<MenuItemModifierSection[]> => {
     const rawData = await fetchClient<any[]>(`/item-sections/items/${itemId}`);

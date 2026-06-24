@@ -1,7 +1,6 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AddButton } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/BackButton";
 import { AddOrderPanel } from "@/components/ui/runner/addorderpanel";
 import { OrderItemDetails } from "@/components/ui/runner/OrderItemDetails";
@@ -9,6 +8,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { OrderItem, OrderItemStatus  } from "../../../../../../../../types/order";
 import { Stall } from "../../../../../../../../types/stall";
+import { MenuItem } from "../../../../../../../../types/item";
 import { useWebSocket } from "@/context/WebSocketContext";
 
 export default function Home() {
@@ -35,7 +35,12 @@ export default function Home() {
   // Swipe state
   const [swipeState, setSwipeState] = useState<{ [key: number]: { x: number; startX: number; isSwiping: boolean } }>({});
   const [updatingItemIds, setUpdatingItemIds] = useState<Set<number>>(new Set());
-  
+
+  const [showItems, setShowItems] = useState(false);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [togglingItemIds, setTogglingItemIds] = useState<Set<number>>(new Set());
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const filteredOrderItems = orderItems.filter(
     (item) => item.status === selectedStatus
@@ -231,6 +236,44 @@ export default function Home() {
     }
   };
 
+  const fetchMenuItems = useCallback(async () => {
+    setLoadingItems(true);
+    try {
+      const items = await api.getItemsByStall(Number(stallId));
+      setMenuItems(items);
+    } catch (error: any) {
+      setError(error.message);
+    } finally {
+      setLoadingItems(false);
+    }
+  }, [stallId]);
+
+  const toggleItemAvailability = async (itemId: number) => {
+    if (togglingItemIds.has(itemId)) return;
+    setTogglingItemIds((prev) => new Set(prev).add(itemId));
+    try {
+      const updated = await api.toggleItemAvailability(itemId);
+      setMenuItems((prev) =>
+        prev.map((it) => (it.item_id === itemId ? { ...it, is_available: updated.is_available } : it))
+      );
+    } catch (error: any) {
+      setError(error.message);
+    } finally {
+      setTogglingItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    }
+  };
+
+  // Fetch items when showItems toggles on
+  useEffect(() => {
+    if (showItems && menuItems.length === 0) {
+      fetchMenuItems();
+    }
+  }, [showItems, fetchMenuItems, menuItems.length]);
+
   // Update order item status
   const updateOrderItemStatus = async (orderItemId: number, type: "STANDARD" | "CUSTOM") => {
     if (updatingItemIds.has(orderItemId)) return;
@@ -332,7 +375,6 @@ export default function Home() {
 
         {/* Status Filter Row */}
         <div className="flex items-center gap-2 mt-4">
-          <AddButton onClick={() => setShowAddOrder(true)} />
           <button 
           onClick={() => setSelectedStatus("INCOMING")}
             className={`px-4 py-1 rounded-lg text-sm font-medium shadow-sm ${
@@ -370,11 +412,133 @@ export default function Home() {
           >
             Served
           </button>
+          <div className="relative ml-auto">
+            <button
+              onClick={() => setShowMoreMenu(prev => !prev)}
+              className="px-4 py-1 rounded-lg text-sm font-bold shadow-sm bg-gray-200 text-gray-700"
+              aria-label="More options"
+            >
+              ...
+            </button>
+            {showMoreMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowMoreMenu(false)}
+                />
+                <div className="absolute right-0 top-full mt-1 w-52 rounded-lg bg-white shadow-lg border py-1 z-50">
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      setShowAddOrder(true);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Add Custom Order
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      setShowItems(prev => !prev);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Toggle Item Availability
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 pb-20 no-scrollbar">
-        {loading ? (
+        {showItems ? (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-800">Item Availability</h2>
+              <button
+                onClick={() => setShowItems(false)}
+                className="px-3 py-1 rounded-lg text-sm font-medium bg-gray-200 text-gray-700 shadow-sm"
+              >
+                ← Back
+              </button>
+            </div>
+            {loadingItems ? (
+              <p className="pt-4">Loading items...</p>
+            ) : menuItems.length === 0 ? (
+              <p className="text-sm text-gray-500 pt-4">No items found for this stall</p>
+            ) : (
+              <>
+                {menuItems
+                  .filter((item) => item.is_available !== false)
+                  .map((item) => (
+                    <div
+                      key={item.item_id}
+                      className="flex justify-between items-center p-3 rounded-lg border bg-white shadow-sm"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{item.name}</p>
+                        <p className="text-sm text-gray-500">${typeof item.price === 'number' ? item.price.toFixed(2) : item.price}</p>
+                      </div>
+                      <button
+                        onClick={() => toggleItemAvailability(item.item_id)}
+                        disabled={togglingItemIds.has(item.item_id)}
+                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          item.is_available !== false ? "bg-green-500" : "bg-gray-300"
+                        } ${togglingItemIds.has(item.item_id) ? "opacity-50" : ""}`}
+                        role="switch"
+                        aria-checked={item.is_available !== false}
+                        aria-label={item.is_available !== false ? "Mark sold out" : "Mark available"}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            item.is_available !== false ? "translate-x-5" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  ))
+                }
+                {menuItems.filter((item) => item.is_available === false).length > 0 && (
+                  <>
+                    <h3 className="text-sm font-semibold text-gray-400 uppercase pt-4 pb-1">Unavailable</h3>
+                    {menuItems
+                      .filter((item) => item.is_available === false)
+                      .map((item) => (
+                        <div
+                          key={item.item_id}
+                          className="flex justify-between items-center p-3 rounded-lg border bg-gray-50 shadow-sm opacity-60"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate text-gray-400">{item.name}</p>
+                            <p className="text-sm text-gray-400">${typeof item.price === 'number' ? item.price.toFixed(2) : item.price}</p>
+                          </div>
+                          <button
+                            onClick={() => toggleItemAvailability(item.item_id)}
+                            disabled={togglingItemIds.has(item.item_id)}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              item.is_available !== false ? "bg-green-500" : "bg-gray-300"
+                            } ${togglingItemIds.has(item.item_id) ? "opacity-50" : ""}`}
+                            role="switch"
+                            aria-checked={item.is_available !== false}
+                            aria-label={item.is_available !== false ? "Mark sold out" : "Mark available"}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                item.is_available !== false ? "translate-x-5" : "translate-x-0"
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      ))
+                    }
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        ) : loading ? (
           <p className="pt-4">Loading...</p>
         ) : error ? (
           <p className="text-red-500 pt-4">Error: {error}</p>
@@ -460,7 +624,6 @@ export default function Home() {
                 </div>
 
                 <div className="text-right">
-                  <p className="font-medium">Table {item.table_number}</p>
                   <p className="text-xs text-gray-400">{item.order_id ? (String(item.order_id).startsWith('CUSTOM-') ? 'Custom' : `Order #${item.order_id}`) : ''}</p>
                   <p className="text-sm text-gray-600">{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>

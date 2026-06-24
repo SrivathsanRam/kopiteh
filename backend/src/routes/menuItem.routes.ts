@@ -21,4 +21,7 @@ router.post("/items/create", authenticateToken, createMenuItemValidation, runVal
 router.put("/items/update/:id", authenticateToken, menuItemIdParamValidation, ...updateMenuItemValidation, runValidation, MenuItemController.update);
 router.delete("/items/remove/:id", authenticateToken, menuItemIdParamValidation, runValidation, MenuItemController.remove);
 router.patch("/items/toggle/:id", authenticateToken, menuItemIdParamValidation, runValidation, MenuItemController.toggle);
+
+// Runner toggle (no JWT auth — same pattern as orderItem routes)
+router.patch("/items/toggle-availability/:id", menuItemIdParamValidation, runValidation, MenuItemController.toggle);
 export default router;
