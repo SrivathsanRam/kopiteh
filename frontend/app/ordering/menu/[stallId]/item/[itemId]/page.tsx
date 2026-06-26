@@ -114,7 +114,17 @@ function ItemCustomizationContent() {
         }
 
         // Standard Multi-select Logic (Max > 1 or Max 0)
-        return isSelected ? prev.filter(id => id !== modId) : [...prev, modId];
+        if (isSelected) {
+            return prev.filter(id => id !== modId);
+        }
+        // Enforce max selection limit (0 means unlimited)
+        if (maxSelections > 0) {
+            const sectionCount = prev.filter(id => modifiers.find(m => m.option_id === id)?.section_id === sectionId).length;
+            if (sectionCount >= maxSelections) {
+                return prev;
+            }
+        }
+        return [...prev, modId];
     });
   };
 
