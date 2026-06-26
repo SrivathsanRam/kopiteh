@@ -360,7 +360,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
           COALESCE(o.table_id, coi.table_id) as table_id,
           COALESCE(o.user_id, coi.user_id) as user_id,
           COALESCE(o.status, coi.status) as status,
-          u.name as user_name,
+          COALESCE(o.volunteer_name, coi.volunteer_name, u.name) as user_name,
           COALESCE(
             (SELECT COALESCE(SUM((oi.price + COALESCE(mod_sum.modifier_total, 0)) * oi.quantity), 0)
              FROM order_item oi
