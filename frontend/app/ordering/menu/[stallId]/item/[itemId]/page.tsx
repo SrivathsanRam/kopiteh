@@ -208,7 +208,14 @@ if (error || !item || item.is_available === false) {
                 <div key={section.section_id} className="px-6">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="font-bold text-xl text-slate-700">{section.name}</h3>
-                        {(section.min_selections ?? 0) > 0 && <Badge>REQUIRED</Badge>}
+                        {section.max_selections === 1 ? (
+                            <Badge>CHOOSE ONE</Badge>
+                        ) : (
+                            <Badge>{[
+                                (section.min_selections ?? 0) > 0 ? `MIN ${section.min_selections}` : null,
+                                (section.max_selections ?? 0) > 0 ? `MAX ${section.max_selections}` : null,
+                            ].filter(Boolean).join(" · ")}</Badge>
+                        )}
                     </div>
                     
                     <div className="border-t border-slate-100">
