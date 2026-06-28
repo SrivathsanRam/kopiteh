@@ -370,7 +370,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
              ) mod_sum ON oi.order_item_id = mod_sum.order_item_id
              WHERE oi.order_id = o.order_id
             ),
-            coi.price * coi.quantity
+            COALESCE(coi.price, 0) * COALESCE(coi.quantity, 0)
           ) as total_price,
           COALESCE(o.created_at, coi.created_at) as created_at,
           CASE WHEN o.order_id IS NOT NULL THEN t.table_number ELSE coi.table_id::text END as table_number,
