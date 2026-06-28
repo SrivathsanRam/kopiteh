@@ -361,7 +361,7 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
           COALESCE(o.user_id, coi.user_id) as user_id,
           COALESCE(o.status, coi.status) as status,
           COALESCE(o.volunteer_name, coi.volunteer_name, u.name) as user_name,
-          COALESCE(
+          CASE WHEN o.order_id IS NOT NULL THEN
             (SELECT COALESCE(SUM((oi.price + COALESCE(mod_sum.modifier_total, 0)) * oi.quantity), 0)
              FROM order_item oi
              LEFT JOIN (
@@ -369,9 +369,9 @@ async create(request: OrderPayload): Promise<ServiceResult<any>> {
                FROM order_item_modifiers GROUP BY order_item_id
              ) mod_sum ON oi.order_item_id = mod_sum.order_item_id
              WHERE oi.order_id = o.order_id
-            ),
-            COALESCE(coi.price, 0) * COALESCE(coi.quantity, 0)
-          ) as total_price,
+            )
+          ELSE COALESCE(coi.price, 0) * COALESCE(coi.quantity, 0)
+          END as total_price,
           COALESCE(o.created_at, coi.created_at) as created_at,
           CASE WHEN o.order_id IS NOT NULL THEN t.table_number ELSE coi.table_id::text END as table_number,
           COALESCE(t.venue_id, cs.venue_id) as venue_id,

@@ -14,19 +14,16 @@ interface OrderData {
   }>
 }
 
-/** Mirrors the backend SQL COALESCE logic for computing total_price */
+/** Mirrors the backend CASE WHEN logic for computing total_price */
 export function computeOrderTotal(order: OrderData): number {
   if (order.order_type === 'CUSTOM') {
-    // Backend: COALESCE(..., COALESCE(coi.price, 0) * COALESCE(coi.quantity, 0))
+    // Backend: ELSE COALESCE(coi.price, 0) * COALESCE(coi.quantity, 0)
     const unitPrice = Number(order.unit_price ?? 0)
     const qty = Number(order.quantity ?? 0)
-    const rawTotal = unitPrice * qty
-    // Backend wraps in COALESCE(subquery, rawTotal)
-    // subquery returns 0 for custom orders (no standard order_item rows)
-    return Number(order.total_price ?? rawTotal)
+    return unitPrice * qty
   }
 
-  // STANDARD orders: total comes from backend subquery
+  // STANDARD: use total_price from backend, or compute from items as fallback
   if (order.total_price != null) return Number(order.total_price)
 
   // Fallback computation for standard orders (item-level)
@@ -99,14 +96,16 @@ describe('computeOrderTotal', () => {
     expect(computeOrderTotal(order)).toBe(37.5)
   })
 
-  it('uses total_price from backend if provided (custom order)', () => {
+  it('computes custom order total regardless of total_price field', () => {
+    // total_price is not the source of truth for custom orders —
+    // the backend computes it from unit_price * quantity via CASE WHEN
     const order: OrderData = {
       order_type: 'CUSTOM',
-      total_price: 45,
+      total_price: 0,
       unit_price: 10,
-      quantity: 3, // 10 * 3 = 30, but total_price is 45
+      quantity: 3,
     }
-    expect(computeOrderTotal(order)).toBe(45)
+    expect(computeOrderTotal(order)).toBe(30)
   })
 
   it('uses total_price from backend for standard orders', () => {
