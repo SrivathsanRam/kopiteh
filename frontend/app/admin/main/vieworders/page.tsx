@@ -89,6 +89,11 @@ export default function ViewOrders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [venueId, accessToken])
 
+  // Reset to page 1 when any filter changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [startDate, endDate, tableNumber, venueId, stallId])
+
   const fetchVenues = async () => {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/venue`, {

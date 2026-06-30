@@ -38,7 +38,7 @@ export function OrderRow({ order, isExpanded, isLoadingItems, onToggleExpand }: 
           </span>
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-          ${parseFloat(order.total_price.toString()).toFixed(2)}
+          ${parseFloat(order.total_price?.toString() ?? '0').toFixed(2)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm">
           <button
@@ -81,7 +81,7 @@ export function OrderRow({ order, isExpanded, isLoadingItems, onToggleExpand }: 
                   <span className="font-semibold">Unit Price:</span> ${parseFloat(order.unit_price?.toString() || '0').toFixed(2)}
                 </div>
                 <div className="text-sm">
-                  <span className="font-semibold">Total:</span> ${parseFloat(order.total_price.toString()).toFixed(2)}
+                  <span className="font-semibold">Total:</span> ${parseFloat(order.total_price?.toString() ?? '0').toFixed(2)}
                 </div>
               </div>
             ) : order.items && order.items.length > 0 ? (
