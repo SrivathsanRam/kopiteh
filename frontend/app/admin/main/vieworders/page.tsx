@@ -307,9 +307,11 @@ export default function ViewOrders() {
     return null
   }
 
-  const fetchAllItemsAndModifiers = async (standardOrders: Order[]) => {
+  const fetchAllItemsAndModifiers = async (orders: Order[]) => {
     const items: any[] = []
     const modifiers: any[] = []
+
+    const standardOrders = orders.filter(o => o.order_type !== 'CUSTOM')
 
     const itemsByOrder = await Promise.all(
       standardOrders.map(async (order) => {
@@ -387,6 +389,23 @@ export default function ViewOrders() {
       items.push(...itemsWithMods)
     }
 
+    for (const order of orders) {
+      if (order.order_type === 'CUSTOM' && order.order_item_name) {
+        const basePrice = parseFloat(order.unit_price?.toString() ?? '0')
+        items.push({
+          order_item_id: `CUSTOM-${order.order_id}`,
+          order_id: order.order_id,
+          item_name: order.order_item_name,
+          stall_name: order.stall_name || '',
+          quantity: order.quantity ?? 1,
+          unit_price: basePrice,
+          total: basePrice * (order.quantity ?? 1),
+          status: order.status,
+          remarks: '',
+        })
+      }
+    }
+
     return { items, modifiers }
   }
 
@@ -456,8 +475,7 @@ export default function ViewOrders() {
     const data = await res.json()
     const allOrders: Order[] = data.payload?.data?.orders ?? []
 
-    const standardOrders = allOrders.filter(o => o.order_type !== 'CUSTOM')
-    const { items, modifiers } = await fetchAllItemsAndModifiers(standardOrders)
+    const { items, modifiers } = await fetchAllItemsAndModifiers(allOrders)
 
     buildWorkbook(allOrders, items, modifiers, 'filtered')
   }
@@ -483,8 +501,7 @@ export default function ViewOrders() {
       }
     }
 
-    const standardOrders = allOrders.filter(o => o.order_type !== 'CUSTOM')
-    const { items, modifiers } = await fetchAllItemsAndModifiers(standardOrders)
+    const { items, modifiers } = await fetchAllItemsAndModifiers(allOrders)
 
     buildWorkbook(allOrders, items, modifiers, 'all_venues')
   }
