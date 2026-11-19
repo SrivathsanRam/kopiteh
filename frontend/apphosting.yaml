@@ -4,3 +4,26 @@ runConfig:
   concurrency: 80
   cpu: 1
   memoryMiB: 512
+env:
+  - variable: NEXT_PUBLIC_API_URL
+    value: https://kopiteh-api-938357880765.asia-southeast1.run.app/api
+  - variable: NEXT_PUBLIC_WS_URL
+    value: https://kopiteh-api-938357880765.asia-southeast1.run.app
+  - variable: NEXT_PUBLIC_SOCKET_URL
+    value: https://kopiteh-api-938357880765.asia-southeast1.run.app
+  - variable: NEXT_PUBLIC_USE_FIREBASE_EMULATORS
+    value: "false"
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyB4k_9qTrmFpri6ptMt2X-G3ktYMRALp9Y
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:938357880765:web:a27f7b13462a631459c4d4
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: project-351f7874-1aa0-446d-a21.firebaseapp.com
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: project-351f7874-1aa0-446d-a21
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "938357880765"
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: project-351f7874-1aa0-446d-a21.firebasestorage.app
+  - variable: NEXT_PUBLIC_RUNNER_CODE
+    secret: kopiteh-runner-code

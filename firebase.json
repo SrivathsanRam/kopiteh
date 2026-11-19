@@ -1,4 +1,9 @@
 {
+  "apphosting": [{
+    "backendId": "kopiteh-web",
+    "rootDir": "frontend",
+    "ignore": ["node_modules", ".git", ".deployment-tools", ".env", ".env.*", "**/.env", "**/.env.*", "**/node_modules", "**/.next", "backend", "firebase-debug.log", "firebase-debug.*.log"]
+  }],
   "firestore": {
     "database": "(default)",
     "rules": "firestore.rules",

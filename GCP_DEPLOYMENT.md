@@ -4,6 +4,65 @@ This branch targets project `project-351f7874-1aa0-446d-a21` in Singapore. The
 frontend runs on Firebase App Hosting, the Express API runs on Cloud Run, and
 Firestore plus Cloud Storage replace PostgreSQL and Supabase Storage.
 
+## Live deployment (19 November 2026)
+
+- Frontend: https://kopiteh-web--project-351f7874-1aa0-446d-a21.asia-southeast1.hosted.app
+- API: https://kopiteh-api-938357880765.asia-southeast1.run.app
+- API health: append `/health` to the API origin.
+- Firestore: `(default)`, Standard edition, Native mode, `asia-southeast1`.
+- Image bucket: `project-351f7874-1aa0-446d-a21.firebasestorage.app` in Singapore.
+- Runtime identity: `kopiteh-api@project-351f7874-1aa0-446d-a21.iam.gserviceaccount.com`.
+- Build identity: `kopiteh-build@project-351f7874-1aa0-446d-a21.iam.gserviceaccount.com`.
+- Both services use minimum zero and maximum one instance.
+- Monthly project budget: S$5, notifications at S$1 and S$5. This is an alert, not a spending cap.
+
+The first release uses Firebase CLI local-source deployments. The deployment
+branch is pushed to GitHub, but automatic GitHub rollouts are not connected.
+All runtime hosting, database, authentication, secrets and image storage are
+Google Cloud/Firebase resources. Local `.env` files are excluded from uploads.
+
+Production verification passed for administrator signup/login/claims,
+anonymous ordering, runner status transitions, WebSocket events, image
+upload/public download, CORS, blocked direct Firestore access, five frontend
+pages and 16 JavaScript assets. Test fixtures were removed. The successful
+frontend Cloud Build ID is `7da02bc7-71d2-4312-828e-cda2435894ed`.
+
+### Redeploy the frontend
+
+Authenticate with `gcloud auth login dgvolunteerswitchboard@gmail.com`, then:
+
+```powershell
+npm install --prefix .deployment-tools --no-save --package-lock=false firebase-tools@15.37.0
+node scripts/firebase-cli.mjs deploy --only=apphosting:kopiteh-web --project=project-351f7874-1aa0-446d-a21 --non-interactive
+```
+
+The wrapper obtains a short-lived access token from gcloud and sets the quota
+project in memory. No service-account key file is needed. `frontend/apphosting.yaml`
+contains public browser configuration and references the runner-code secret.
+Next.js standalone tracing stays rooted at `frontend/` so App Hosting finds the
+server manifest; shared DTOs in `types/` remain available at build time.
+
+### Administrator and runner setup
+
+Retrieve `kopiteh-admin-signup-code` and `kopiteh-runner-code` from Secret Manager
+in this project. Both were randomly generated; neither is committed to Git.
+Create your administrator at `/admin/auth/signup`, then add/import venues,
+tables and menus. Customer orders do not require login. Runner login keeps its
+existing browser code flow; its `NEXT_PUBLIC_` code is necessarily included in
+the browser bundle and is not a replacement for server-side authorization.
+
+### Verify production
+
+```powershell
+node scripts/smoke-production.mjs
+node scripts/verify-frontend.mjs
+```
+
+This tests administrator signup/login/claims, protected-route rejection,
+anonymous ordering, runner state changes, WebSocket events and public image
+uploads. It removes only the exact temporary documents, image and account it
+created; numeric counters may advance. It does not send emails.
+
 ## 1. Create the Firebase resources
 
 1. Open the Firebase console and add Firebase to the existing Google Cloud
@@ -33,9 +92,12 @@ $serviceAccount = "kopiteh-api@$projectId.iam.gserviceaccount.com"
 gcloud config set project $projectId
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com firestore.googleapis.com firebasestorage.googleapis.com identitytoolkit.googleapis.com secretmanager.googleapis.com
 gcloud iam service-accounts create kopiteh-api --display-name="Kopiteh Cloud Run API"
+gcloud iam service-accounts create kopiteh-build --display-name="Kopiteh Cloud Build"
+gcloud projects add-iam-policy-binding $projectId --member="serviceAccount:kopiteh-build@$projectId.iam.gserviceaccount.com" --role="roles/run.builder"
 gcloud projects add-iam-policy-binding $projectId --member="serviceAccount:$serviceAccount" --role="roles/datastore.user"
-gcloud projects add-iam-policy-binding $projectId --member="serviceAccount:$serviceAccount" --role="roles/firebaseauth.admin"
-gcloud projects add-iam-policy-binding $projectId --member="serviceAccount:$serviceAccount" --role="roles/storage.objectAdmin"
+gcloud iam roles create kopitehAuthUsers --project=$projectId --title="Kopiteh administrator signup" --permissions="firebaseauth.users.create,firebaseauth.users.get,firebaseauth.users.update,firebaseauth.users.delete" --stage=GA
+gcloud projects add-iam-policy-binding $projectId --member="serviceAccount:$serviceAccount" --role="projects/$projectId/roles/kopitehAuthUsers"
+gcloud storage buckets add-iam-policy-binding "gs://$projectId.firebasestorage.app" --member="serviceAccount:$serviceAccount" --role="roles/storage.objectAdmin"
 ```
 
 Use a long random administrator signup code. Store it in Secret Manager; do not
@@ -56,12 +118,14 @@ gcloud run deploy kopiteh-api `
   --source backend `
   --region asia-southeast1 `
   --service-account $serviceAccount `
+  --build-service-account "projects/$projectId/serviceAccounts/kopiteh-build@$projectId.iam.gserviceaccount.com" `
   --allow-unauthenticated `
   --min 0 `
   --max 1 `
   --cpu 1 `
   --memory 512Mi `
-  --set-env-vars "FIREBASE_PROJECT_ID=$projectId,FIREBASE_STORAGE_BUCKET=$projectId.firebasestorage.app,FRONTEND_URL=*" `
+  --timeout 3600 `
+  --set-env-vars "FIREBASE_PROJECT_ID=$projectId,FIREBASE_STORAGE_BUCKET=$projectId.firebasestorage.app,FRONTEND_URL=https://kopiteh-web--$projectId.asia-southeast1.hosted.app" `
   --set-secrets "ADMIN_SIGNUP_CODE=kopiteh-admin-signup-code:latest"
 ```
 
