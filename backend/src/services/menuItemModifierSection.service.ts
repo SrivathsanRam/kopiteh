@@ -1,25 +1,27 @@
 import type { MenuItemModifierSectionPayload } from "../types/payloads";
 import type { ServiceResult } from "../types/responses";
-import { BaseService } from "./base.service";
 import { successResponse, errorResponse } from "../types/responses";
 import { ErrorCodes } from "../types/errors";
 import { SuccessCodes } from "../types/success";
+import {
+  Collections,
+  documentById,
+  getById,
+  getWhere,
+  nextId,
+  sortByNumericId,
+  updateDocument,
+} from "./firestore.service";
 
-const SECTION_COLUMNS = new Set([
-  "item_id",
-  "name",
-  "min_selections",
-  "max_selections",
-]);
+const SECTION_COLUMNS = new Set(["item_id", "name", "min_selections", "max_selections"]);
 
 export const MenuItemModifierSectionService = {
   async findAllByItem(itemId: number): Promise<ServiceResult<any[]>> {
     try {
-      const result = await BaseService.query(
-        "SELECT * FROM menu_item_modifier_section WHERE item_id = $1 ORDER BY section_id ASC",
-        [itemId]
+      return successResponse(
+        SuccessCodes.OK,
+        sortByNumericId(await getWhere(Collections.modifierSections, "item_id", itemId), "section_id"),
       );
-      return successResponse(SuccessCodes.OK, result.rows);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -27,83 +29,40 @@ export const MenuItemModifierSectionService = {
 
   async findById(id: number): Promise<ServiceResult<any>> {
     try {
-      const result = await BaseService.query(
-        "SELECT * FROM menu_item_modifier_section WHERE section_id = $1",
-        [id]
-      );
-
-      if (!result.rows[0]) {
-        return errorResponse(
-          ErrorCodes.NOT_FOUND,
-          "Modifier section not found"
-        );
-      }
-
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      const section = await getById(Collections.modifierSections, id);
+      if (!section) return errorResponse(ErrorCodes.NOT_FOUND, "Modifier section not found");
+      return successResponse(SuccessCodes.OK, section);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
   },
 
-  async create(
-    payload: MenuItemModifierSectionPayload
-  ): Promise<ServiceResult<any>> {
+  async create(payload: MenuItemModifierSectionPayload): Promise<ServiceResult<any>> {
     try {
-      const result = await BaseService.query(
-        `INSERT INTO menu_item_modifier_section (item_id, name, min_selections, max_selections)
-         VALUES ($1, $2, $3, $4)
-         RETURNING *`,
-        [
-          payload.item_id,
-          payload.name,
-          payload.min_selections ?? 0,
-          payload.max_selections ?? 0,
-        ]
-      );
-
-      return successResponse(SuccessCodes.CREATED, result.rows[0]);
+      const section_id = await nextId(Collections.modifierSections);
+      const section = {
+        section_id,
+        item_id: payload.item_id,
+        name: payload.name,
+        min_selections: payload.min_selections ?? 0,
+        max_selections: payload.max_selections ?? 1,
+      };
+      await documentById(Collections.modifierSections, section_id).set(section);
+      return successResponse(SuccessCodes.CREATED, section);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
   },
 
-  async update(
-    id: number,
-    payload: Partial<MenuItemModifierSectionPayload>
-  ): Promise<ServiceResult<any>> {
-    const entries = Object.entries(payload).filter(([key]) =>
-      SECTION_COLUMNS.has(key)
-    );
-
-    if (entries.length === 0) {
-      return errorResponse(
-        ErrorCodes.VALIDATION_ERROR,
-        "No valid fields to update"
-      );
+  async update(id: number, payload: Partial<MenuItemModifierSectionPayload>): Promise<ServiceResult<any>> {
+    const updates = Object.fromEntries(Object.entries(payload).filter(([key]) => SECTION_COLUMNS.has(key)));
+    if (Object.keys(updates).length === 0) {
+      return errorResponse(ErrorCodes.VALIDATION_ERROR, "No valid fields to update");
     }
-
-    const setClause = entries
-      .map(([field], i) => `${field} = $${i + 1}`)
-      .join(", ");
-
-    const values = entries.map(([, v]) => v ?? null);
-
     try {
-      const query = `UPDATE menu_item_modifier_section
-                     SET ${setClause}
-                     WHERE section_id = $${entries.length + 1}
-                     RETURNING *`;
-
-      const result = await BaseService.query(query, [...values, id]);
-
-      if (!result.rows[0]) {
-        return errorResponse(
-          ErrorCodes.NOT_FOUND,
-          "Modifier section not found"
-        );
-      }
-
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      const section = await updateDocument(Collections.modifierSections, id, updates);
+      if (!section) return errorResponse(ErrorCodes.NOT_FOUND, "Modifier section not found");
+      return successResponse(SuccessCodes.OK, section);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -111,18 +70,12 @@ export const MenuItemModifierSectionService = {
 
   async delete(id: number): Promise<ServiceResult<null>> {
     try {
-      const result = await BaseService.query(
-        "DELETE FROM menu_item_modifier_section WHERE section_id = $1",
-        [id]
-      );
-
-      if (result.rowCount === 0) {
-        return errorResponse(
-          ErrorCodes.NOT_FOUND,
-          "Modifier section not found"
-        );
+      if (!(await getById(Collections.modifierSections, id))) {
+        return errorResponse(ErrorCodes.NOT_FOUND, "Modifier section not found");
       }
-
+      const options = await getWhere(Collections.modifiers, "section_id", id);
+      await Promise.all(options.map((option) => documentById(Collections.modifiers, option.option_id).delete()));
+      await documentById(Collections.modifierSections, id).delete();
       return successResponse<null>(SuccessCodes.OK, null);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));

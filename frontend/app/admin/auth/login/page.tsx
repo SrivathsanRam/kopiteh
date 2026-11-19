@@ -3,10 +3,11 @@
 import { Button } from "@/components/ui/button"
 import { FormField } from "@/components/ui/formfield"
 import { useState } from "react"
-import { LoginPayload } from "../../../../../types/auth"
 import { useAuthStore } from "@/stores/auth.store"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { signInWithEmailAndPassword, signOut } from "firebase/auth"
+import { getFirebaseAuth } from "@/lib/firebase"
 
 export default function Home() {
   const [email, setEmail] = useState("")
@@ -14,87 +15,53 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const API_URL = process.env.NEXT_PUBLIC_API_URL
   const router = useRouter();
 
   const setAccessToken = useAuthStore((state) => state.setAccessToken);
-  const setRefreshToken = useAuthStore((state) => state.setRefreshToken);
   const setUser = useAuthStore((state) => state.setUser);
   const handleLogin = async () => {
     setError("");
     setSuccess("");
     setLoading(true);
 
-    if (!API_URL) {
-      setError("API URL is not configured.");
-      return;
-    }
-
     if (!email?.trim()) {
       setError("Please enter your email");
+      setLoading(false);
       return;
     }
 
     if (!password) {
       setError("Please enter your password");
+      setLoading(false);
       return;
     }
 
 
     setLoading(true);
     try {
-      const payload: LoginPayload = {
-        email,
-        password
-      };
-
-      const res = await fetch(`${API_URL}/auth/account-login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+      const auth = getFirebaseAuth();
+      const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const tokenResult = await credential.user.getIdTokenResult(true);
+      if (tokenResult.claims.role !== "admin") {
+        await signOut(auth);
+        throw new Error("This account does not have administrator access.");
+      }
+      setAccessToken(tokenResult.token);
+      setUser({
+        user_id: credential.user.uid,
+        email: credential.user.email ?? email.trim(),
+        name: credential.user.displayName ?? "Administrator",
+        role: "admin",
+        created_at: credential.user.metadata.creationTime ?? new Date().toISOString(),
       });
-
-      let data: any;
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error("Invalid JSON response from server.");
-      }
-
-      if (!data.success) {
-        const validationErrors = data?.error?.details?.errors;
-
-        if (Array.isArray(validationErrors) && validationErrors.length > 0) {
-          const msg = validationErrors.map((e: any) => e.msg).join(", ");
-          setError(msg);
-        } else {
-          setError(data?.payload?.details || `Request failed: ${res.status}`);
-        }
-        return;
-      }
-
-      const payloadData = data?.payload?.data || {};
-      const accessToken: string | undefined = payloadData.access_token;
-      const refreshToken: string | undefined = payloadData.refresh_token;
-      const user = payloadData.user;
-
-      const message: string =
-        payloadData.message ||            // "Email verified successfully"
-        data?.payload?.message ||         // "Request processed successfully."
-        "Email verified successfully.";
-
-
-      setAccessToken(accessToken);
-      setRefreshToken(refreshToken);
-      setUser(user);
-      setSuccess(message);
+      setSuccess("Login successful.");
 
       setTimeout(() => {
         router.push("/admin/main/viewanalytics");
       }, 1500);
     } catch (err: any) {
-      console.error("Signup error:", err);
-      setError(err.message || "Something went wrong. Please try again.");
+      console.error("Login error:", err);
+      setError(err.code === "auth/invalid-credential" ? "Invalid email or password." : err.message || "Unable to log in.");
     } finally {
       setLoading(false);
     }

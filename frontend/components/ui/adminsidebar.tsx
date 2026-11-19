@@ -14,6 +14,8 @@ import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
+import { signOut } from "firebase/auth";
+import { getFirebaseAuth } from "@/lib/firebase";
 
 function AdminSideBar() {
     const { user, isHydrated, logout } = useAuthStore();
@@ -48,17 +50,7 @@ function AdminSideBar() {
 
     const handleLogout = async () => {
         try {
-            const refreshToken = useAuthStore.getState().refreshToken;
-            if (!refreshToken) {
-                logout();
-                router.push("/admin/auth/login");
-                return;
-            }
-            await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/logout`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ refresh_token: refreshToken }),
-            });
+            await signOut(getFirebaseAuth());
             logout();
             router.push("/admin/auth/login");
         } catch {

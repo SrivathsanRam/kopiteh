@@ -1,32 +1,46 @@
-# kopiteh
+# Kopiteh
 
-## Getting Started
+Kopiteh is a Next.js ordering frontend with an Express API. The deployment on
+the `gcp-deployment` branch uses Firebase Authentication, Cloud Firestore, and
+Cloud Storage. PostgreSQL is not required.
 
-First, compose the backend container:
-```bash
+## Local development
+
+Install dependencies in both packages:
+
+```powershell
 cd backend
-docker compose up --build
+npm install
+cd ../frontend
+npm install
 ```
-The result should be visible at localhost:4000/
 
-To seed the database with mock values,
-in another terminal:
-```bash
+Copy any missing variables from `backend/.env.example` and
+`frontend/.env.example` into the existing `.env` files. Do not delete or commit
+the real `.env` files.
+
+Start Firebase emulators from the repository root:
+
+```powershell
+npx firebase-tools emulators:start
+```
+
+Start the backend and frontend in separate terminals:
+
+```powershell
 cd backend
-docker compose exec backend npm run rollback
-docker compose exec backend npm run migrate
-docker compose exec backend npm run seed
-```
-The result should be visible at localhost:4000/stalls
-
-Next, run the development server:
-
-```bash
-cd frontend
-npm i
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+```powershell
+cd frontend
+npm run dev
+```
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+The frontend is available at `http://localhost:3000`; the API health endpoint
+is at `http://localhost:4000/health`.
+
+## Production deployment
+
+See [GCP_DEPLOYMENT.md](./GCP_DEPLOYMENT.md) for the Firebase and Cloud Run
+setup for project `project-351f7874-1aa0-446d-a21` in Singapore.

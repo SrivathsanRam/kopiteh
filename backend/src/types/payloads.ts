@@ -109,7 +109,6 @@ export interface OrderPayload {
   volunteer_name: string;
   
   // Optional/Backend generated
-  user_id?: number;
   status?: OrderStatusCodes;
   created_at?: string;
 }
@@ -127,7 +126,6 @@ export interface UpdateOrderItemPayload extends Partial<OrderItemPayload> {}
 export interface CustomOrderItemPayload {
   stall_id: number;
   table_id: number;
-  user_id?: number;
   order_item_name: string;
   quantity: number;
   price: number;
@@ -148,23 +146,4 @@ export interface CreateAccountPayload {
   email: string;
   password: string;
   secretCode: string;
-}
-
-export interface LoginPayload {
-  email: string;
-  password: string;
-}
-
-export interface ForgotPasswordPayload {
-  email: string;
-  name: string;
-  newPassword: string;
-}
-
-export interface RefreshTokenPayload {
-  refreshToken: string;
-}
-
-export interface LogoutPayload {
-  refreshToken: string
 }

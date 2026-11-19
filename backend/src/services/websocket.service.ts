@@ -5,11 +5,17 @@ import { Server } from 'socket.io';
 let io: SocketIOServer;
 const userSockets = new Map<number, string[]>();
 const stallSockets = new Map<number, string[]>();
+const tableSockets = new Map<number, string[]>();
 
 export const WebSocketService = {
   init(httpServer: HTTPServer) {
+    const allowedOrigins = (process.env.FRONTEND_URL || '*')
+      .split(',')
+      .map((origin) => origin.trim());
     io = new Server(httpServer, {
-      cors: { origin: process.env.FRONTEND_URL || 'http://localhost:3000' },
+      cors: {
+        origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
+      },
     });
 
     io.on('connection', (socket: Socket) => {
@@ -29,6 +35,23 @@ export const WebSocketService = {
         stallSockets.get(stallId)!.push(socket.id);
         socket.join(`stall_${stallId}`);
         console.log(`Socket ${socket.id} joined room stall_${stallId}`);
+      });
+
+      // Anonymous customers subscribe to the table selected in their cart.
+      socket.on('join_table', (tableId: number) => {
+        if (!tableSockets.has(tableId)) tableSockets.set(tableId, []);
+        tableSockets.get(tableId)!.push(socket.id);
+        socket.join(`table_${tableId}`);
+      });
+
+      socket.on('leave_table', (tableId: number) => {
+        socket.leave(`table_${tableId}`);
+        const sockets = tableSockets.get(tableId);
+        if (sockets) {
+          const index = sockets.indexOf(socket.id);
+          if (index > -1) sockets.splice(index, 1);
+          if (sockets.length === 0) tableSockets.delete(tableId);
+        }
       });
 
       // Leave stall room
@@ -56,6 +79,11 @@ export const WebSocketService = {
           if (idx > -1) sockets.splice(idx, 1);
           if (sockets.length === 0) stallSockets.delete(stallId);
         });
+        tableSockets.forEach((sockets, tableId) => {
+          const idx = sockets.indexOf(socket.id);
+          if (idx > -1) sockets.splice(idx, 1);
+          if (sockets.length === 0) tableSockets.delete(tableId);
+        });
         console.log(`User disconnected: ${socket.id}`);
       });
     });
@@ -75,6 +103,11 @@ export const WebSocketService = {
     }
   },
 
+  notifyTableOrderStatusChange(tableId: number, orderId: number, status: string) {
+    if (!io) return;
+    io.to(`table_${tableId}`).emit('order_status_updated', { orderId, status });
+  },
+
   // Notify stall room when a new order item is created
   notifyStallOrderItemCreated(stallId: number, orderItem: any) {
     try {
@@ -90,6 +123,11 @@ export const WebSocketService = {
     }
   },
 
+  notifyTableOrderItemCreated(tableId: number, orderItem: any) {
+    if (!io) return;
+    io.to(`table_${tableId}`).emit('order_item_created', { orderItem });
+  },
+
   // Notify stall room when an order item is updated
   notifyStallOrderItemUpdated(stallId: number, orderItem: any) {
     try {
@@ -102,6 +140,11 @@ export const WebSocketService = {
     } catch (err) {
       console.error('WebSocket emit error:', err);
     }
+  },
+
+  notifyTableOrderItemUpdated(tableId: number, orderItem: any) {
+    if (!io) return;
+    io.to(`table_${tableId}`).emit('order_item_updated', { orderItem });
   },
 
   // Notify user room when a new order item is created

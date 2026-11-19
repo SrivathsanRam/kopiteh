@@ -6,7 +6,7 @@ interface OrderData {
   order_type?: 'STANDARD' | 'CUSTOM'
   total_price?: number | string | null
   unit_price?: number | string | null
-  quantity?: number | null
+  quantity?: number | string | null
   items?: Array<{
     price: number
     quantity: number

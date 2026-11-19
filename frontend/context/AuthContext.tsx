@@ -1,72 +1,50 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuthStore } from "../stores/auth.store"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL
+import { onIdTokenChanged, signOut } from "firebase/auth";
+import { getFirebaseAuth } from "@/lib/firebase";
+import { useAuthStore } from "@/stores/auth.store";
 
 export function AuthContext({ children }: { children: React.ReactNode }) {
-  const {
-    isHydrated,
-    accessToken,
-    refreshToken,
-    setAccessToken,
-    setRefreshToken,
-    setUser,
-    logout,
-  } = useAuthStore();
+  const { isHydrated, setAccessToken, setUser, logout } = useAuthStore();
   const [bootstrapped, setBootstrapped] = useState(false);
 
   useEffect(() => {
-    if (!isHydrated || bootstrapped) return;
-
-    const init = async () => {
-      // No refresh token => user is effectively logged out
-      if (!refreshToken) {
+    if (!isHydrated) return;
+    const auth = getFirebaseAuth();
+    return onIdTokenChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        logout();
         setBootstrapped(true);
         return;
       }
 
-
-      // No access token but have refresh token (auto-login)
-      if (!accessToken) {
-        try {
-          const res = await fetch(`${API_URL}/auth/refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ refresh_token: refreshToken }),
-          });
-
-          const data = await res.json();
-
-          if (!res.ok || data?.success === false) {
-            logout();
-          } else {
-            const payload = data.payload?.data ?? {};
-            setAccessToken(payload.access_token || null);
-            setRefreshToken(payload.refresh_token || null);
-            if (payload.user) setUser(payload.user);
-          }
-        } catch (e) {
-          console.error("Auto refresh failed:", e);
-          logout();
-        }
+      const tokenResult = await firebaseUser.getIdTokenResult();
+      if (tokenResult.claims.role !== "admin") {
+        await signOut(auth);
+        logout();
+        setBootstrapped(true);
+        return;
       }
 
+      setAccessToken(tokenResult.token);
+      setUser({
+        user_id: firebaseUser.uid,
+        email: firebaseUser.email ?? "",
+        name: firebaseUser.displayName ?? firebaseUser.email ?? "Administrator",
+        role: "admin",
+        created_at: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
+      });
       setBootstrapped(true);
-    };
-
-    void init();
-  }, [isHydrated, bootstrapped, refreshToken, accessToken, logout, setAccessToken, setRefreshToken, setUser]);
+    });
+  }, [isHydrated, logout, setAccessToken, setUser]);
 
   if (!bootstrapped) {
-    // Initial splash/loading while we decide if user is logged in
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-sm text-gray-500">Loading...</p>
       </div>
     );
   }
-
   return <>{children}</>;
 }

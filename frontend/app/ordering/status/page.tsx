@@ -30,9 +30,11 @@ export default function OrderStatusPage() {
     };
     fetchOrders();
 
-    // 2. WebSocket Implementation
-    // Assume userId 1 (Guest) for connection as per backend logic
-    socket.emit("join_user", 1); 
+    // Anonymous orders are scoped to the table selected in this browser. Join
+    // again after reconnecting because Cloud Run can close idle connections.
+    const joinTable = () => socket.emit("join_table", tableId);
+    socket.on("connect", joinTable);
+    if (socket.connected) joinTable();
 
     socket.on("order_status_updated", (data) => {
       // data format: { orderId, status }
@@ -68,6 +70,8 @@ export default function OrderStatusPage() {
     });
 
     return () => {
+      socket.emit("leave_table", tableId);
+      socket.off("connect", joinTable);
       socket.off("order_status_updated");
       socket.off("order_item_updated");
     };

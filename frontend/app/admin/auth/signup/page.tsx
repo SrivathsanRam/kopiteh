@@ -3,10 +3,12 @@
 import { Button } from "@/components/ui/button"
 import { FormField } from "@/components/ui/formfield"
 import { useState } from "react"
-import { UserRole, User, CreateAccountPayload } from "../../../../../types/auth"
+import { CreateAccountPayload } from "../../../../../types/auth"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuthStore } from "@/stores/auth.store"
+import { signInWithEmailAndPassword } from "firebase/auth"
+import { getFirebaseAuth } from "@/lib/firebase"
 
 export default function Home() {
     const [email, setEmail] = useState("")
@@ -19,7 +21,6 @@ export default function Home() {
     const API_URL = process.env.NEXT_PUBLIC_API_URL
     const router = useRouter();
     const setAccessToken = useAuthStore((state) => state.setAccessToken);
-    const setRefreshToken = useAuthStore((state) => state.setRefreshToken);
     const setUser = useAuthStore((state) => state.setUser);
 
     const handleSignup = async () => {
@@ -35,21 +36,25 @@ export default function Home() {
 
         if (!userName?.trim()) {
             setError("Please enter your username");
+            setLoading(false);
             return;
         }
 
         if (!email?.trim()) {
             setError("Please enter your email");
+            setLoading(false);
             return;
         }
 
         if (!password) {
             setError("Please enter your password");
+            setLoading(false);
             return;
         }
 
         if (String(secretCode ?? "").trim() === "") {
             setError("Please enter the secret code");
+            setLoading(false);
             return;
         }
 
@@ -91,17 +96,12 @@ export default function Home() {
                 return;
             }
             // Success response
-            const message = data.payload?.data?.message ?? "Account has been created. Has been created, redirecting you back to the main page";
-            setSuccess(message);
-
             const payloadData = data?.payload?.data || {};
-            const accessToken: string | undefined = payloadData.access_token;
-            const refreshToken: string | undefined = payloadData.refresh_token;
-            const user = payloadData.user;
-
+            const credential = await signInWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
+            const accessToken = await credential.user.getIdToken(true);
             setAccessToken(accessToken);
-            setRefreshToken(refreshToken);
-            setUser(user);
+            setUser(payloadData.user);
+            setSuccess(payloadData.message ?? "Account created successfully.");
 
             setTimeout(() => {
                 router.push("/admin/main/viewanalytics");

@@ -46,10 +46,17 @@ export const OrderController = {
 
       if (result.success && result.payload.data?.orders) {
         for (const order of result.payload.data.orders) {
-          const itemResult = await OrderItemService.findByOrder(Number(order.order_id));
-          
+          const itemResult = order.order_type === "CUSTOM"
+            ? await OrderItemService.findById(
+                Number(String(order.order_id).replace("CUSTOM-", "")),
+                "CUSTOM",
+              )
+            : await OrderItemService.findByOrder(Number(order.order_id));
+
           if (itemResult.success && 'data' in itemResult.payload) {
-            order.items = itemResult.payload.data || [];
+            order.items = order.order_type === "CUSTOM"
+              ? [itemResult.payload.data]
+              : itemResult.payload.data || [];
           } else {
             order.items = [];
           }

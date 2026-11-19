@@ -8,7 +8,7 @@
     ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "allowJs": false, // set true if you want to migrate gradually
     "noEmit": true,
     "strict": false, // start relaxed; tighten later
@@ -40,8 +40,9 @@
     ".next/types/**/*.ts",
     "**/*.d.ts",
     "../types/**/*.ts",
-    "context/AuthContext.tsx"  
-],
+    "context/AuthContext.tsx",
+    ".next/dev/types/**/*.ts"
+  ],
   "exclude": [
     "node_modules"
   ]

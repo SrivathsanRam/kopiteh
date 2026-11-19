@@ -1,23 +1,25 @@
 import type { MenuItemCategoryPayload, UpdateMenuItemCategoryPayload } from "../types/payloads";
 import type { ServiceResult } from "../types/responses";
-import { BaseService } from "./base.service";
 import { successResponse, errorResponse } from "../types/responses";
 import { ErrorCodes } from "../types/errors";
 import { SuccessCodes } from "../types/success";
+import {
+  Collections,
+  documentById,
+  getById,
+  getWhere,
+  nextId,
+  updateDocument,
+} from "./firestore.service";
 
 const CATEGORY_COLUMNS = new Set(["stall_id", "name", "sort_order"]);
 
 export const MenuItemCategoryService = {
   async findAllByStall(stall_id: number): Promise<ServiceResult<any[]>> {
     try {
-      const result = await BaseService.query(
-        `SELECT *
-         FROM menu_item_category
-         WHERE stall_id = $1
-         ORDER BY sort_order ASC, category_id ASC`,
-        [stall_id]
-      );
-      return successResponse(SuccessCodes.OK, result.rows);
+      const categories = await getWhere(Collections.categories, "stall_id", stall_id);
+      categories.sort((a, b) => Number(a.sort_order) - Number(b.sort_order) || Number(a.category_id) - Number(b.category_id));
+      return successResponse(SuccessCodes.OK, categories);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -25,62 +27,39 @@ export const MenuItemCategoryService = {
 
   async findById(id: number): Promise<ServiceResult<any>> {
     try {
-      const result = await BaseService.query(
-        `SELECT * FROM menu_item_category WHERE category_id = $1`,
-        [id]
-      );
-
-      if (!result.rows[0]) {
-        return errorResponse(ErrorCodes.NOT_FOUND, "Menu item category not found");
-      }
-
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      const category = await getById(Collections.categories, id);
+      if (!category) return errorResponse(ErrorCodes.NOT_FOUND, "Menu item category not found");
+      return successResponse(SuccessCodes.OK, category);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
   },
 
   async create(payload: MenuItemCategoryPayload): Promise<ServiceResult<any>> {
-    const sortOrder =
-      payload.sort_order ??
-      (await this.nextSortOrderForStall(payload.stall_id));
-
     try {
-      const result = await BaseService.query(
-        `INSERT INTO menu_item_category (stall_id, name, sort_order)
-         VALUES ($1, $2, $3)
-         RETURNING *`,
-        [payload.stall_id, payload.name, sortOrder]
-      );
-
-      return successResponse(SuccessCodes.CREATED, result.rows[0]);
+      const category_id = await nextId(Collections.categories);
+      const category = {
+        category_id,
+        stall_id: payload.stall_id,
+        name: payload.name,
+        sort_order: payload.sort_order ?? await this.nextSortOrderForStall(payload.stall_id),
+      };
+      await documentById(Collections.categories, category_id).set(category);
+      return successResponse(SuccessCodes.CREATED, category);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
   },
 
   async update(id: number, payload: UpdateMenuItemCategoryPayload): Promise<ServiceResult<any>> {
-    const entries = Object.entries(payload).filter(([key]) => CATEGORY_COLUMNS.has(key));
-    if (entries.length === 0) {
+    const updates = Object.fromEntries(Object.entries(payload).filter(([key]) => CATEGORY_COLUMNS.has(key)));
+    if (Object.keys(updates).length === 0) {
       return errorResponse(ErrorCodes.VALIDATION_ERROR, "No valid fields to update");
     }
-
-    const setClause = entries.map(([field], i) => `${field} = $${i + 1}`).join(", ");
-    const values = entries.map(([, v]) => v ?? null);
-
     try {
-      const query = `UPDATE menu_item_category
-                     SET ${setClause}
-                     WHERE category_id = $${entries.length + 1}
-                     RETURNING *`;
-
-      const result = await BaseService.query(query, [...values, id]);
-
-      if (!result.rows[0]) {
-        return errorResponse(ErrorCodes.NOT_FOUND, "Menu item category not found");
-      }
-
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      const category = await updateDocument(Collections.categories, id, updates);
+      if (!category) return errorResponse(ErrorCodes.NOT_FOUND, "Menu item category not found");
+      return successResponse(SuccessCodes.OK, category);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -88,15 +67,14 @@ export const MenuItemCategoryService = {
 
   async delete(id: number): Promise<ServiceResult<null>> {
     try {
-      const result = await BaseService.query(
-        `DELETE FROM menu_item_category WHERE category_id = $1`,
-        [id]
-      );
-
-      if (result.rowCount === 0) {
+      if (!(await getById(Collections.categories, id))) {
         return errorResponse(ErrorCodes.NOT_FOUND, "Menu item category not found");
       }
-
+      const items = await getWhere(Collections.menuItems, "category_id", id);
+      for (const item of items) {
+        await documentById(Collections.menuItems, item.item_id).update({ category_id: null });
+      }
+      await documentById(Collections.categories, id).delete();
       return successResponse<null>(SuccessCodes.OK, null);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
@@ -104,13 +82,7 @@ export const MenuItemCategoryService = {
   },
 
   async nextSortOrderForStall(stall_id: number): Promise<number> {
-    const r = await BaseService.query(
-      `SELECT COALESCE(MAX(sort_order), -1) AS max_sort
-       FROM menu_item_category
-       WHERE stall_id = $1`,
-      [stall_id]
-    );
-    const maxSort = Number(r.rows?.[0]?.max_sort ?? -1);
-    return maxSort + 1;
+    const categories = await getWhere(Collections.categories, "stall_id", stall_id);
+    return Math.max(-1, ...categories.map((category) => Number(category.sort_order ?? -1))) + 1;
   },
 };

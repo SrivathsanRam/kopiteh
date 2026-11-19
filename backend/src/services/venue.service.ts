@@ -1,17 +1,33 @@
-import type { VenuePayload, UpdateVenuePayload } from '../types/payloads';
-import type { ServiceResult } from '../types/responses';
-import { BaseService } from './base.service';
-import { successResponse, errorResponse } from '../types/responses';
-import { ErrorCodes } from '../types/errors';
-import { SuccessCodes } from '../types/success';
+import type { VenuePayload, UpdateVenuePayload } from "../types/payloads";
+import type { ServiceResult } from "../types/responses";
+import { successResponse, errorResponse } from "../types/responses";
+import { ErrorCodes } from "../types/errors";
+import { SuccessCodes } from "../types/success";
+import {
+  Collections,
+  deleteDocuments,
+  documentById,
+  getAll,
+  getById,
+  getWhere,
+  nextId,
+  sortByNumericId,
+  sortTables,
+  updateDocument,
+  withoutUndefined,
+} from "./firestore.service";
 
-const VENUE_COLUMNS = new Set(['name', 'address', 'description', 'image_url', 'opening_hours']);
+const VENUE_COLUMNS = new Set([
+  "name", "address", "description", "image_url", "opening_hours",
+]);
 
 export const VenueService = {
   async findAll(): Promise<ServiceResult<any[]>> {
     try {
-      const result = await BaseService.query('SELECT * FROM venue');
-      return successResponse(SuccessCodes.OK, result.rows);
+      return successResponse(
+        SuccessCodes.OK,
+        sortByNumericId(await getAll(Collections.venues), "venue_id"),
+      );
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -19,9 +35,9 @@ export const VenueService = {
 
   async findById(id: number): Promise<ServiceResult<any>> {
     try {
-      const result = await BaseService.query('SELECT * FROM venue WHERE venue_id = $1', [id]);
-      if (!result.rows[0]) return errorResponse(ErrorCodes.NOT_FOUND, 'Venue not found');
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      const venue = await getById(Collections.venues, id);
+      if (!venue) return errorResponse(ErrorCodes.NOT_FOUND, "Venue not found");
+      return successResponse(SuccessCodes.OK, venue);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -29,36 +45,34 @@ export const VenueService = {
 
   async create(payload: VenuePayload): Promise<ServiceResult<any>> {
     try {
-      const result = await BaseService.query(
-        'INSERT INTO venue (name, address, description, image_url, opening_hours) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-        [
-          payload.name,
-          payload.address ?? null,
-          payload.description ?? null,
-          payload.image_url ?? null,
-          payload.opening_hours ?? null,
-        ],
-      );
-      return successResponse(SuccessCodes.CREATED, result.rows[0]);
+      const venue_id = await nextId(Collections.venues);
+      const venue = withoutUndefined({
+        venue_id,
+        name: payload.name,
+        address: payload.address ?? null,
+        description: payload.description ?? null,
+        image_url: payload.image_url ?? null,
+        opening_hours: payload.opening_hours ?? null,
+      });
+      await documentById(Collections.venues, venue_id).set(venue);
+      return successResponse(SuccessCodes.CREATED, venue);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
   },
 
   async update(id: number, payload: UpdateVenuePayload): Promise<ServiceResult<any>> {
-    const entries = Object.entries(payload).filter(([key]) => VENUE_COLUMNS.has(key));
-    if (entries.length === 0) return errorResponse(ErrorCodes.VALIDATION_ERROR, 'No valid fields to update');
-
-    const setClause = entries
-      .map(([field], index) => `${field} = $${index + 1}`)
-      .join(', ');
-    const values = entries.map(([, value]) => value ?? null);
+    const updates = Object.fromEntries(
+      Object.entries(payload).filter(([key]) => VENUE_COLUMNS.has(key)),
+    );
+    if (Object.keys(updates).length === 0) {
+      return errorResponse(ErrorCodes.VALIDATION_ERROR, "No valid fields to update");
+    }
 
     try {
-      const query = `UPDATE venue SET ${setClause} WHERE venue_id = $${entries.length + 1} RETURNING *`;
-      const result = await BaseService.query(query, [...values, id]);
-      if (!result.rows[0]) return errorResponse(ErrorCodes.NOT_FOUND, 'Venue not found');
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      const venue = await updateDocument(Collections.venues, id, updates);
+      if (!venue) return errorResponse(ErrorCodes.NOT_FOUND, "Venue not found");
+      return successResponse(SuccessCodes.OK, venue);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -66,8 +80,56 @@ export const VenueService = {
 
   async delete(id: number): Promise<ServiceResult<null>> {
     try {
-      const result = await BaseService.query('DELETE FROM venue WHERE venue_id = $1', [id]);
-      if (result.rowCount === 0) return errorResponse(ErrorCodes.NOT_FOUND, 'Venue not found');
+      if (!(await getById(Collections.venues, id))) {
+        return errorResponse(ErrorCodes.NOT_FOUND, "Venue not found");
+      }
+      const [orders, orderItems] = await Promise.all([
+        getWhere(Collections.orders, "venue_id", id),
+        getWhere(Collections.orderItems, "venue_id", id),
+      ]);
+      if (orders.length > 0 || orderItems.length > 0) {
+        return errorResponse(
+          ErrorCodes.VALIDATION_ERROR,
+          "Venue has order history and cannot be removed",
+        );
+      }
+
+      const [stalls, tables] = await Promise.all([
+        getWhere(Collections.stalls, "venue_id", id),
+        getWhere(Collections.tables, "venue_id", id),
+      ]);
+      const stallIds = new Set(stalls.map((stall) => Number(stall.stall_id)));
+      const [allCategories, allMenuItems] = await Promise.all([
+        getAll(Collections.categories),
+        getAll(Collections.menuItems),
+      ]);
+      const categories = allCategories.filter((category) =>
+        stallIds.has(Number(category.stall_id)),
+      );
+      const menuItems = allMenuItems.filter((item) =>
+        stallIds.has(Number(item.stall_id)),
+      );
+      const itemIds = new Set(menuItems.map((item) => Number(item.item_id)));
+      const [allSections, allModifiers] = await Promise.all([
+        getAll(Collections.modifierSections),
+        getAll(Collections.modifiers),
+      ]);
+      const sections = allSections.filter((section) =>
+        itemIds.has(Number(section.item_id)),
+      );
+      const modifiers = allModifiers.filter((modifier) =>
+        itemIds.has(Number(modifier.item_id)),
+      );
+
+      await deleteDocuments([
+        ...modifiers.map((modifier) => documentById(Collections.modifiers, modifier.option_id)),
+        ...sections.map((section) => documentById(Collections.modifierSections, section.section_id)),
+        ...menuItems.map((item) => documentById(Collections.menuItems, item.item_id)),
+        ...categories.map((category) => documentById(Collections.categories, category.category_id)),
+        ...tables.map((table) => documentById(Collections.tables, table.table_id)),
+        ...stalls.map((stall) => documentById(Collections.stalls, stall.stall_id)),
+        documentById(Collections.venues, id),
+      ]);
       return successResponse<null>(SuccessCodes.OK, null);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
@@ -76,15 +138,10 @@ export const VenueService = {
 
   async findTables(id: number): Promise<ServiceResult<any[]>> {
     try {
-      const result = await BaseService.query(
-        `SELECT * FROM "table" WHERE venue_id = $1 AND is_active = TRUE
-         ORDER BY 
-           CASE WHEN table_number ~ '^[0-9]+$' THEN 0 ELSE 1 END,
-           CASE WHEN table_number ~ '^[0-9]+$' THEN table_number::INTEGER ELSE 0 END,
-           table_number ASC`,
-        [id]
+      const tables = (await getWhere(Collections.tables, "venue_id", id)).filter(
+        (table) => table.is_active === true,
       );
-      return successResponse(SuccessCodes.OK, result.rows);
+      return successResponse(SuccessCodes.OK, sortTables(tables));
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }

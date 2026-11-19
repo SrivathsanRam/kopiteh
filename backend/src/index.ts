@@ -6,32 +6,34 @@ import { createServer } from 'http';
 import routes from './routes';
 import errorHandler from './middleware/error.handler';
 import { WebSocketService } from './services/websocket.service';
-import pool from './config/database';
+import { db } from './config/firebase';
 
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '4000', 10);
+const allowedOrigins = (process.env.FRONTEND_URL || '*')
+  .split(',')
+  .map((origin) => origin.trim());
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  credentials: true,
+  origin: allowedOrigins.includes('*') ? true : allowedOrigins,
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Health check endpoint for Render
+// Health check endpoint for Cloud Run
 app.get('/health', async (_req, res) => {
   try {
     const start = Date.now();
-    await pool.query('SELECT 1');
+    await db.collection('_health').limit(1).get();
     const latency = Date.now() - start;
 
     res.status(200).json({
       status: 'ok',
-      database: 'connected',
+      database: 'firestore-connected',
       dbLatencyMs: latency,
       timestamp: new Date().toISOString(),
     });

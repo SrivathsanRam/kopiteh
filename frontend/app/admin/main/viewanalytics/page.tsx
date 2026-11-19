@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/stores/auth.store"
 import { useRouter } from "next/navigation"
 import type { Venue } from "../../../../../types"
+import { downloadWorkbook, type WorkbookSheet } from "@/lib/excel"
 
 interface StallAnalytics {
   stall_id: number
@@ -117,10 +118,8 @@ export default function ViewAnalytics() {
 
   const years = Array.from({ length: 5 }, (_, i) => currentDate.getFullYear() - i)
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (!analytics) return
-
-    const XLSX = require("xlsx")
 
     const venueName = venues.find(v => v.venue_id === selectedVenueId)?.name ?? "venue"
     const monthLabel = monthNames[selectedMonth - 1]
@@ -143,17 +142,18 @@ export default function ViewAnalytics() {
       ]),
     ]
 
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryData), "Summary")
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stallData), "Breakdown by Stall")
-
-    XLSX.writeFile(wb, `analytics_${venueName}_${monthLabel}_${selectedYear}.xlsx`)
+    await downloadWorkbook(
+      [
+        { name: "Summary", rows: summaryData },
+        { name: "Breakdown by Stall", rows: stallData },
+      ],
+      `analytics_${venueName}_${monthLabel}_${selectedYear}.xlsx`,
+    )
   }
 
   const handleExportAllVenues = async () => {
-    const XLSX = require("xlsx")
-    const wb = XLSX.utils.book_new()
     const monthLabel = monthNames[selectedMonth - 1]
+    const sheets: WorkbookSheet[] = []
 
     for (const venue of venues) {
       try {
@@ -180,14 +180,16 @@ export default function ViewAnalytics() {
           ]),
         ]
 
-        const sheetName = venue.name.slice(0, 31)
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), sheetName)
+        sheets.push({ name: venue.name, rows: sheetData })
       } catch (err) {
         console.error(`Failed to fetch analytics for ${venue.name}:`, err)
       }
     }
 
-    XLSX.writeFile(wb, `analytics_all_venues_${monthLabel}_${selectedYear}.xlsx`)
+    await downloadWorkbook(
+      sheets,
+      `analytics_all_venues_${monthLabel}_${selectedYear}.xlsx`,
+    )
   }
 
   return (

@@ -2,7 +2,7 @@ import { body, param, query } from 'express-validator';
 import { OrderStatusCodes } from '../types/orderStatus';
 import { enforceKnownFields, requireAtLeastOneField, optionalTextField, optionalNonNegativeNum } from './base.validation';
 
-const ITEM_FIELDS = ['table_id', 'items', 'user_id', 'total_price', 'remarks', 'volunteer_name'] as const;
+const ITEM_FIELDS = ['table_id', 'items', 'total_price', 'remarks', 'volunteer_name'] as const;
 
 export const orderIdParamValidation = [
   param('id').isInt({ gt: 0 }).withMessage('id must be positive integer'),
@@ -24,7 +24,6 @@ export const analyticsQueryValidation = [
 export const createOrderValidation = [
   enforceKnownFields(ITEM_FIELDS as readonly string[]),
   body('table_id').exists().withMessage('Table ID is required').isInt({ gt: 0 }).withMessage('Table ID must be a positive integer'),
-  optionalNonNegativeNum('user_id'),
   body('total_price').exists().isFloat({ min: 0 }),
   optionalTextField('remarks', 1000),
   body('volunteer_name').exists({ checkFalsy: true }).isString(),

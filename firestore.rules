@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All application data goes through the Cloud Run API. The Firebase Admin
+    // SDK uses IAM and is not affected by these client rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

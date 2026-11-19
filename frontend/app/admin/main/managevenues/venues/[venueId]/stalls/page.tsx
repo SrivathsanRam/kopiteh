@@ -9,6 +9,7 @@ import { useParams } from "next/navigation";
 import { CirclePlus, Download, Upload } from "lucide-react"
 import { AdminStallModal } from "@/components/ui/admin/adminstallmodal"
 import Link from "next/link"
+import { downloadWorkbook, readWorkbookSheets } from "@/lib/excel"
 
 export default function Stalls() {
     const { venueId } = useParams<{ venueId: string }>();
@@ -230,8 +231,6 @@ export default function Stalls() {
             setExporting(true);
             setError(null);
 
-            const XLSX = require("xlsx");
-
             const stallsRes = await fetch(`${API_URL}/stalls/venue/${numericVenueId}`);
             const stallsJson = await fetchJsonOrThrow(stallsRes, "Failed to fetch stalls");
             const venueStalls: Stall[] = stallsJson.payload?.data ?? [];
@@ -337,13 +336,15 @@ export default function Stalls() {
                 ...variantRows,
             ];
 
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(stallSheet), "Stalls");
-            XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(itemSheet), "Items");
-            XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(variantSheet), "Variants");
-
             const dateLabel = new Date().toISOString().slice(0, 10);
-            XLSX.writeFile(workbook, `venue_${numericVenueId}_menu_export_${dateLabel}.xlsx`);
+            await downloadWorkbook(
+                [
+                    { name: "Stalls", rows: stallSheet },
+                    { name: "Items", rows: itemSheet },
+                    { name: "Variants", rows: variantSheet },
+                ],
+                `venue_${numericVenueId}_menu_export_${dateLabel}.xlsx`,
+            );
         } catch (err: any) {
             setError(err?.message ?? "Failed to export venue menu");
         } finally {
@@ -359,61 +360,35 @@ export default function Stalls() {
             setImporting(true);
             setError(null);
 
-            const XLSX = await import("xlsx");
-            const reader = new FileReader();
+            const sheets = await readWorkbookSheets(
+                await file.arrayBuffer(),
+                ["Stalls", "Items", "Variants"],
+            );
+            const res = await fetch(`${API_URL}/stalls/venue/${venueId}/import`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({
+                    stalls: sheets.Stalls,
+                    items: sheets.Items,
+                    variants: sheets.Variants,
+                }),
+            });
 
-            reader.onload = async (e) => {
-                try {
-                    const data = new Uint8Array(e.target?.result as ArrayBuffer);
-                    const workbook = XLSX.read(data, { type: "array" });
+            const resData = await res.json();
+            if (!res.ok || resData.success === false) {
+                throw new Error(resData?.payload?.message ?? "Import failed");
+            }
 
-                    if (!workbook.Sheets["Stalls"] || !workbook.Sheets["Items"] || !workbook.Sheets["Variants"]) {
-                        throw new Error("Invalid format. Make sure the Excel file has 'Stalls', 'Items', and 'Variants' sheets.");
-                    }
-
-                    const stalls = XLSX.utils.sheet_to_json(workbook.Sheets["Stalls"]);
-                    const items = XLSX.utils.sheet_to_json(workbook.Sheets["Items"]);
-                    const variants = XLSX.utils.sheet_to_json(workbook.Sheets["Variants"]);
-
-                    const res = await fetch(`${API_URL}/stalls/venue/${venueId}/import`, {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${accessToken}`,
-                        },
-                        body: JSON.stringify({ stalls, items, variants })
-                    });
-
-                    const resData = await res.json();
-                    if (!res.ok || resData.success === false) {
-                        throw new Error(resData?.payload?.message ?? "Import failed");
-                    }
-
-                    const payload = resData.payload?.data;
-                    let message = `Import successful. ${payload?.stallsImported ?? '?'} stalls, ${payload?.itemsImported ?? '?'} items, ${payload?.variantsImported ?? '?'} variant rows imported.`;
-
-                    if (payload?.warnings && payload.warnings.length > 0) {
-                        message += `\n\nWarnings (${payload.warnings.length}):\n${payload.warnings.join('\n')}`;
-                        setError(null);
-                        setTimeout(() => window.location.reload(), 500);
-                    } else {
-                        window.location.reload();
-                    }
-
-                    alert(message);
-                } catch (err: any) {
-                    setError(err?.message ?? "Error parsing or importing Excel file");
-                } finally {
-                    setImporting(false);
-                }
-            };
-
-            reader.onerror = () => {
-                setError("Failed to read the file");
-                setImporting(false);
-            };
-
-            reader.readAsArrayBuffer(file);
+            const payload = resData.payload?.data;
+            let message = `Import successful. ${payload?.stallsImported ?? '?'} stalls, ${payload?.itemsImported ?? '?'} items, ${payload?.variantsImported ?? '?'} variant rows imported.`;
+            if (payload?.warnings?.length > 0) {
+                message += `\n\nWarnings (${payload.warnings.length}):\n${payload.warnings.join('\n')}`;
+            }
+            alert(message);
+            window.location.reload();
         } catch (err: any) {
             setError(err?.message ?? "Failed to process the import");
             setImporting(false);

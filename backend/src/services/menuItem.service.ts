@@ -1,38 +1,94 @@
 import type { MenuItemPayload, UpdateMenuItemPayload } from "../types/payloads";
 import type { ServiceResult } from "../types/responses";
-import { BaseService } from "./base.service";
+import { db } from "../config/firebase";
 import { successResponse, errorResponse } from "../types/responses";
 import { ErrorCodes } from "../types/errors";
 import { SuccessCodes } from "../types/success";
+import {
+  Collections,
+  documentById,
+  ensureCounterAtLeast,
+  getById,
+  getWhere,
+  nextId,
+  reserveIds,
+  sortByNumericId,
+  withoutUndefined,
+} from "./firestore.service";
 
 const ITEM_COLUMNS = new Set([
-  "stall_id",
-  "category_id",
-  "item_image",
-  "name",
-  "description",
-  "price",
-  "prep_time",
-  "is_available",
+  "stall_id", "category_id", "item_image", "name", "description",
+  "price", "prep_time", "is_available",
 ]);
 
+function menuItemDocument(item_id: number, payload: MenuItemPayload | UpdateMenuItemPayload) {
+  return withoutUndefined({
+    item_id,
+    stall_id: payload.stall_id,
+    category_id: payload.category_id ?? null,
+    item_image: payload.item_image ?? null,
+    name: payload.name,
+    description: payload.description ?? null,
+    price: payload.price,
+    prep_time: payload.prep_time ?? 0,
+    is_available: payload.is_available ?? true,
+  });
+}
+
+async function writeModifierTree(
+  itemId: number,
+  sections: NonNullable<MenuItemPayload["modifier_sections"]>,
+  batch: FirebaseFirestore.WriteBatch,
+) {
+  const missingSectionCount = sections.filter((section) => !section.section_id).length;
+  const missingOptionCount = sections.reduce(
+    (count, section) => count + (section.options ?? []).filter((option) => !option.option_id).length,
+    0,
+  );
+  const newSectionIds = await reserveIds(Collections.modifierSections, missingSectionCount);
+  const newOptionIds = await reserveIds(Collections.modifiers, missingOptionCount);
+  let sectionIndex = 0;
+  let optionIndex = 0;
+
+  for (const section of sections) {
+    const section_id = section.section_id
+      ? Number(section.section_id)
+      : newSectionIds[sectionIndex++];
+    if (section.section_id) await ensureCounterAtLeast(Collections.modifierSections, section_id);
+
+    batch.set(documentById(Collections.modifierSections, section_id), {
+      section_id,
+      item_id: itemId,
+      name: section.name.trim(),
+      min_selections: Number(section.min_selections),
+      max_selections: Number(section.max_selections),
+    });
+
+    for (const option of section.options ?? []) {
+      const option_id = option.option_id
+        ? Number(option.option_id)
+        : newOptionIds[optionIndex++];
+      if (option.option_id) await ensureCounterAtLeast(Collections.modifiers, option_id);
+      batch.set(documentById(Collections.modifiers, option_id), {
+        option_id,
+        section_id,
+        item_id: itemId,
+        name: option.name.trim(),
+        price_modifier: Number(option.price_modifier),
+        is_available: option.is_available ?? true,
+      });
+    }
+  }
+}
+
 export const MenuItemService = {
-  async findAllByStall(
-    stall_id: number,
-    category_id?: number,
-  ): Promise<ServiceResult<any[]>> {
+  async findAllByStall(stall_id: number, category_id?: number): Promise<ServiceResult<any[]>> {
     try {
-      const hasCategoryFilter =
-        typeof category_id === "number" && !Number.isNaN(category_id);
-
-      const result = await BaseService.query(
-        hasCategoryFilter
-          ? `SELECT * FROM menu_item WHERE stall_id = $1 AND category_id = $2 ORDER BY item_id ASC`
-          : `SELECT * FROM menu_item WHERE stall_id = $1 ORDER BY item_id ASC`,
-        hasCategoryFilter ? [stall_id, category_id] : [stall_id],
-      );
-
-      return successResponse(SuccessCodes.OK, result.rows);
+      let items = await getWhere(Collections.menuItems, "stall_id", stall_id);
+      if (typeof category_id === "number" && !Number.isNaN(category_id)) {
+        items = items.filter((item) => Number(item.category_id) === category_id);
+      }
+      return successResponse(SuccessCodes.OK, sortByNumericId(items, "item_id"));
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -40,16 +96,9 @@ export const MenuItemService = {
 
   async findById(id: number): Promise<ServiceResult<any>> {
     try {
-      const result = await BaseService.query(
-        "SELECT * FROM menu_item WHERE item_id = $1",
-        [id],
-      );
-
-      if (!result.rows[0]) {
-        return errorResponse(ErrorCodes.NOT_FOUND, "Menu item not found");
-      }
-
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      const item = await getById(Collections.menuItems, id);
+      if (!item) return errorResponse(ErrorCodes.NOT_FOUND, "Menu item not found");
+      return successResponse(SuccessCodes.OK, item);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -57,18 +106,11 @@ export const MenuItemService = {
 
   async findDefault(stall_id: number): Promise<ServiceResult<any>> {
     try {
-      const result = await BaseService.query(
-        `SELECT * FROM menu_item WHERE stall_id = $1 AND name = 'Default Item' LIMIT 1`,
-        [stall_id],
+      const item = (await getWhere(Collections.menuItems, "stall_id", stall_id)).find(
+        (candidate) => candidate.name === "Default Item",
       );
-      if (!result.rows[0]) {
-        return errorResponse(
-          ErrorCodes.NOT_FOUND,
-          "Default menu item not found",
-        );
-      }
-
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      if (!item) return errorResponse(ErrorCodes.NOT_FOUND, "Default menu item not found");
+      return successResponse(SuccessCodes.OK, item);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
@@ -76,275 +118,82 @@ export const MenuItemService = {
 
   async create(payload: MenuItemPayload): Promise<ServiceResult<any>> {
     try {
-      const item = await BaseService.tx(async (client) => {
-        // 1) create item
-        const itemRes = await client.query(
-          `INSERT INTO menu_item (
-           stall_id, category_id, item_image, name, description, price, prep_time, is_available
-         )
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         RETURNING *`,
-          [
-            payload.stall_id,
-            payload.category_id ?? null,
-            payload.item_image ?? null,
-            payload.name,
-            payload.description ?? null,
-            payload.price,
-            payload.prep_time ?? 0,
-            payload.is_available ?? true,
-          ],
-        );
-
-        const createdItem = itemRes.rows[0];
-        const itemId = createdItem.item_id;
-
-        // 2) create modifier sections + options (optional)
-        for (const s of payload.modifier_sections ?? []) {
-          const secRes = await client.query(
-            `INSERT INTO menu_item_modifier_section (
-             item_id, name, min_selections, max_selections
-           )
-           VALUES ($1,$2,$3,$4)
-           RETURNING section_id`,
-            [
-              itemId,
-              s.name.trim(),
-              Number(s.min_selections),
-              Number(s.max_selections),
-            ],
-          );
-
-          const sectionId = secRes.rows[0].section_id;
-
-          for (const o of s.options ?? []) {
-            await client.query(
-              `INSERT INTO menu_item_modifier (
-               section_id, item_id, name, price_modifier, is_available
-             )
-             VALUES ($1,$2,$3,$4,$5)`,
-              [
-                sectionId,
-                itemId,
-                o.name.trim(),
-                Number(o.price_modifier),
-                o.is_available ?? true,
-              ],
-            );
-          }
-        }
-
-        return createdItem;
-      });
-
+      const item_id = await nextId(Collections.menuItems);
+      const item = menuItemDocument(item_id, payload);
+      const batch = db.batch();
+      batch.set(documentById(Collections.menuItems, item_id), item);
+      await writeModifierTree(item_id, payload.modifier_sections ?? [], batch);
+      await batch.commit();
       return successResponse(SuccessCodes.CREATED, item);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
   },
 
-  async update(
-    id: number,
-    payload: UpdateMenuItemPayload,
-  ): Promise<ServiceResult<any>> {
+  async update(id: number, payload: UpdateMenuItemPayload): Promise<ServiceResult<any>> {
     try {
-      const updatedItem = await BaseService.tx(async (client) => {
-        const baseEntries = Object.entries(payload).filter(
-          ([key]) => key !== "modifier_sections" && ITEM_COLUMNS.has(key),
-        );
+      const current = await getById(Collections.menuItems, id);
+      if (!current) return errorResponse(ErrorCodes.NOT_FOUND, "Menu item not found");
 
-        let itemRow: any = null;
-
-        if (baseEntries.length > 0) {
-          const setClause = baseEntries
-            .map(([field], i) => `${field} = $${i + 1}`)
-            .join(", ");
-          const values = baseEntries.map(([, v]) => v ?? null);
-
-          const query = `UPDATE menu_item SET ${setClause} WHERE item_id = $${
-            baseEntries.length + 1
-          } RETURNING *`;
-
-          const itemRes = await client.query(query, [...values, id]);
-          itemRow = itemRes.rows[0];
-
-          if (!itemRow) {
-            // no item
-            throw new Error("NOT_FOUND: Menu item not found");
-          }
-        } else {
-          // no base updates—still need to verify item exists if we're syncing modifiers
-          const itemRes = await client.query(
-            "SELECT * FROM menu_item WHERE item_id = $1",
-            [id],
-          );
-          itemRow = itemRes.rows[0];
-          if (!itemRow) throw new Error("NOT_FOUND: Menu item not found");
-        }
-
-        if (payload.modifier_sections) {
-          const nextSections = payload.modifier_sections;
-
-          // Load current sections
-          const secRes = await client.query(
-            `SELECT section_id FROM menu_item_modifier_section WHERE item_id = $1`,
-            [id],
-          );
-          const currentSectionIds = new Set<number>(
-            secRes.rows.map((r) => r.section_id),
-          );
-
-          // Load current options
-          const optRes = await client.query(
-            `SELECT option_id FROM menu_item_modifier WHERE item_id = $1`,
-            [id],
-          );
-          const currentOptionIds = new Set<number>(
-            optRes.rows.map((r) => r.option_id),
-          );
-
-          // Next ids
-          const nextSectionIds = new Set<number>();
-          const nextOptionIds = new Set<number>();
-
-          for (const s of nextSections) {
-            if (s.section_id) nextSectionIds.add(Number(s.section_id));
-            for (const o of s.options ?? []) {
-              if (o.option_id) nextOptionIds.add(Number(o.option_id));
-            }
-          }
-
-          // 1) delete removed options first (safe even if section delete cascades)
-          for (const optionId of currentOptionIds) {
-            if (!nextOptionIds.has(optionId)) {
-              await client.query(
-                `DELETE FROM menu_item_modifier WHERE option_id = $1 AND item_id = $2`,
-                [optionId, id],
-              );
-            }
-          }
-
-          // 2) delete removed sections (cascade deletes options by FK)
-          for (const sectionId of currentSectionIds) {
-            if (!nextSectionIds.has(sectionId)) {
-              await client.query(
-                `DELETE FROM menu_item_modifier_section WHERE section_id = $1 AND item_id = $2`,
-                [sectionId, id],
-              );
-            }
-          }
-
-          // 3) upsert sections + options
-          for (const s of nextSections) {
-            let sectionId: number;
-
-            if (s.section_id) {
-              sectionId = Number(s.section_id);
-              await client.query(
-                `UPDATE menu_item_modifier_section
-               SET name=$1, min_selections=$2, max_selections=$3
-               WHERE section_id=$4 AND item_id=$5`,
-                [
-                  s.name.trim(),
-                  Number(s.min_selections),
-                  Number(s.max_selections),
-                  sectionId,
-                  id,
-                ],
-              );
-            } else {
-              const insSec = await client.query(
-                `INSERT INTO menu_item_modifier_section (item_id, name, min_selections, max_selections)
-               VALUES ($1,$2,$3,$4)
-               RETURNING section_id`,
-                [
-                  id,
-                  s.name.trim(),
-                  Number(s.min_selections),
-                  Number(s.max_selections),
-                ],
-              );
-              sectionId = insSec.rows[0].section_id;
-            }
-
-            for (const o of s.options ?? []) {
-              if (o.option_id) {
-                await client.query(
-                  `UPDATE menu_item_modifier
-                 SET name=$1, price_modifier=$2, is_available=$3, section_id=$4
-                 WHERE option_id=$5 AND item_id=$6`,
-                  [
-                    o.name.trim(),
-                    Number(o.price_modifier),
-                    o.is_available ?? true,
-                    sectionId,
-                    Number(o.option_id),
-                    id,
-                  ],
-                );
-              } else {
-                await client.query(
-                  `INSERT INTO menu_item_modifier (section_id, item_id, name, price_modifier, is_available)
-                 VALUES ($1,$2,$3,$4,$5)`,
-                  [
-                    sectionId,
-                    id,
-                    o.name.trim(),
-                    Number(o.price_modifier),
-                    o.is_available ?? true,
-                  ],
-                );
-              }
-            }
-          }
-        }
-
-        return itemRow;
-      });
-
-      return successResponse(SuccessCodes.OK, updatedItem);
-    } catch (error: any) {
-      if (
-        typeof error?.message === "string" &&
-        error.message.startsWith("NOT_FOUND:")
-      ) {
-        return errorResponse(ErrorCodes.NOT_FOUND, "Menu item not found");
+      const updates = Object.fromEntries(
+        Object.entries(payload)
+          .filter(([key]) => key !== "modifier_sections" && ITEM_COLUMNS.has(key))
+          .map(([key, value]) => [key, value ?? null]),
+      );
+      const batch = db.batch();
+      if (Object.keys(updates).length > 0) {
+        batch.update(documentById(Collections.menuItems, id), updates);
       }
+
+      if (payload.modifier_sections) {
+        const [sections, options] = await Promise.all([
+          getWhere(Collections.modifierSections, "item_id", id),
+          getWhere(Collections.modifiers, "item_id", id),
+        ]);
+        for (const option of options) batch.delete(documentById(Collections.modifiers, option.option_id));
+        for (const section of sections) batch.delete(documentById(Collections.modifierSections, section.section_id));
+        await writeModifierTree(id, payload.modifier_sections, batch);
+      }
+
+      await batch.commit();
+      return successResponse(SuccessCodes.OK, { ...current, ...updates });
+    } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
   },
 
   async delete(id: number): Promise<ServiceResult<null>> {
     try {
-      const result = await BaseService.query(
-        "DELETE FROM menu_item WHERE item_id = $1",
-        [id],
-      );
-
-      if (result.rowCount === 0) {
+      if (!(await getById(Collections.menuItems, id))) {
         return errorResponse(ErrorCodes.NOT_FOUND, "Menu item not found");
       }
-
+      const history = await getWhere(Collections.orderItems, "item_id", id);
+      if (history.length > 0) {
+        await documentById(Collections.menuItems, id).update({ is_available: false });
+        return successResponse<null>(SuccessCodes.OK, null);
+      }
+      const [sections, options] = await Promise.all([
+        getWhere(Collections.modifierSections, "item_id", id),
+        getWhere(Collections.modifiers, "item_id", id),
+      ]);
+      const batch = db.batch();
+      for (const option of options) batch.delete(documentById(Collections.modifiers, option.option_id));
+      for (const section of sections) batch.delete(documentById(Collections.modifierSections, section.section_id));
+      batch.delete(documentById(Collections.menuItems, id));
+      await batch.commit();
       return successResponse<null>(SuccessCodes.OK, null);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }
   },
+
   async toggleAvailability(id: number): Promise<ServiceResult<any>> {
     try {
-      const result = await BaseService.query(
-        `UPDATE menu_item
-       SET is_available = NOT is_available
-       WHERE item_id = $1
-       RETURNING *`,
-        [id],
-      );
-
-      if (!result.rows[0]) {
-        return errorResponse(ErrorCodes.NOT_FOUND, "Menu item not found");
-      }
-
-      return successResponse(SuccessCodes.OK, result.rows[0]);
+      const item = await getById(Collections.menuItems, id);
+      if (!item) return errorResponse(ErrorCodes.NOT_FOUND, "Menu item not found");
+      const updated = { ...item, is_available: !item.is_available };
+      await documentById(Collections.menuItems, id).update({ is_available: updated.is_available });
+      return successResponse(SuccessCodes.OK, updated);
     } catch (error) {
       return errorResponse(ErrorCodes.DATABASE_ERROR, String(error));
     }

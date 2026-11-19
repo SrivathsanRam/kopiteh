@@ -3,7 +3,6 @@
 import type { Venue } from "../../../../../types/venue";
 import { useEffect, useState } from "react";
 import { useAuthStore } from "@/stores/auth.store";
-import { useRouter } from "next/navigation";
 import { CardHolder } from "@/components/ui/cardholder";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -18,9 +17,8 @@ export default function VenuesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { user, isHydrated, logout, accessToken } = useAuthStore();
+  const { user, isHydrated, accessToken } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
-  const router = useRouter();
 
   // modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -66,30 +64,6 @@ export default function VenuesPage() {
   }, [API_URL]);
 
   if (!isHydrated || !user) return null;
-
-  const handleLogout = async () => {
-    try {
-      const refreshToken = useAuthStore.getState().refreshToken;
-
-      if (!refreshToken) {
-        logout();
-        router.push("/login");
-        return;
-      }
-
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/logout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      }).catch(() => null);
-
-      logout();
-      router.push("/admin/auth/login");
-    } catch {
-      useAuthStore.getState().logout();
-      router.push("/login");
-    }
-  };
 
   const handleCreateVenue = async ({ name, imageUrl, address, description, opening_hours }: {
     name: string; imageUrl?: string; address?: string; description?: string; opening_hours?: string;

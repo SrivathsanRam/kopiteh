@@ -8,6 +8,7 @@ import { OrdersTable } from "./components/OrdersTable"
 import { Button } from "@/components/ui/button"
 import { PaginationControls } from "./components/PaginationControls"
 import type { Order as BaseOrder, OrderItem as BaseOrderItem, OrderItemModifier, Venue, Stall } from "../../../../../types"
+import { downloadWorkbook } from "@/lib/excel"
 
 // Extended types for admin view with additional fields
 export interface OrderItem extends BaseOrderItem {
@@ -17,7 +18,8 @@ export interface OrderItem extends BaseOrderItem {
   stall_name?: string
 }
 
-export interface Order extends Omit<BaseOrder, 'table_id'> {
+export interface Order extends Omit<BaseOrder, 'table_id' | 'order_id'> {
+  order_id: number | string
   table_id: number
   table_number: string
   venue_id: number
@@ -414,9 +416,7 @@ export default function ViewOrders() {
     return { items, modifiers }
   }
 
-  const buildWorkbook = (orders: Order[], items: any[], modifiers: any[], suffix: string) => {
-    const XLSX = require("xlsx")
-
+  const buildWorkbook = async (orders: Order[], items: any[], modifiers: any[], suffix: string) => {
     const orderSheet = [
       ["Order ID", "Orderer Name", "Date", "Venue", "Table", "Status", "Type", "Total"],
       ...orders.map(o => [
@@ -457,11 +457,14 @@ export default function ViewOrders() {
       ]),
     ]
 
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(orderSheet), "Orders")
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(itemSheet), "Items")
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(modifierSheet), "Modifiers")
-    XLSX.writeFile(wb, `orders_${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    await downloadWorkbook(
+      [
+        { name: "Orders", rows: orderSheet },
+        { name: "Items", rows: itemSheet },
+        { name: "Modifiers", rows: modifierSheet },
+      ],
+      `orders_${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+    )
   }
 
   const handleExportOrders = async () => {
@@ -482,7 +485,7 @@ export default function ViewOrders() {
 
     const { items, modifiers } = await fetchAllItemsAndModifiers(allOrders)
 
-    buildWorkbook(allOrders, items, modifiers, 'filtered')
+    await buildWorkbook(allOrders, items, modifiers, 'filtered')
   }
 
   const handleExportAllVenues = async () => {
@@ -508,7 +511,7 @@ export default function ViewOrders() {
 
     const { items, modifiers } = await fetchAllItemsAndModifiers(allOrders)
 
-    buildWorkbook(allOrders, items, modifiers, 'all_venues')
+    await buildWorkbook(allOrders, items, modifiers, 'all_venues')
   }
 
   return (

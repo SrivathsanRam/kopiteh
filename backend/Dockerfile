@@ -1,21 +1,20 @@
-# Use Node.js base image
-FROM node:22-alpine
+FROM node:22-alpine AS build
 
-# Set working directory
 WORKDIR /app
-
-# Copy package files and install dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
 
-# Copy source code
-COPY . .
+FROM node:22-alpine AS runtime
 
-# Build TypeScript to JS
-RUN npx tsc
+ENV NODE_ENV=production
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /app/dist ./dist
 
-# Expose backend port
+USER node
 EXPOSE 4000
-
-# Start the server with ts-node-dev for hot reload in development
-CMD ["npx", "ts-node-dev", "--respawn", "--transpile-only", "src/index.ts"]
+CMD ["node", "dist/index.js"]
